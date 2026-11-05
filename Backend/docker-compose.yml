@@ -1,0 +1,50 @@
+name: di-cho-tien-loi
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dicho}
+      POSTGRES_USER: ${POSTGRES_USER:-dicho}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dicho}
+      TZ: UTC
+    ports:
+      - "${DB_HOST_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dicho} -d ${POSTGRES_DB:-dicho}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Hộp thư giả lập SMTP cho môi trường dev: xem email OTP tại http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-dicho}:${POSTGRES_PASSWORD:-dicho}@db:5432/${POSTGRES_DB:-dicho}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      UPLOAD_DIR: /app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    ports:
+      - "${API_HOST_PORT:-3001}:3000"
+    volumes:
+      - uploads:/app/uploads
+
+volumes:
+  pgdata:
+  uploads:
