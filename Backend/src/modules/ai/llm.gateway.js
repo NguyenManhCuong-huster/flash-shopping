@@ -7,7 +7,7 @@ import { env } from '../../config/env.js';
  */
 let client = null;
 
-export const aiConfigured = () => env.ai.provider === 'anthropic' && !!env.ai.apiKey;
+export const aiConfigured = () => ['anthropic', 'openrouter'].includes(env.ai.provider) && !!env.ai.apiKey;
 
 function getClient() {
   if (!client) {

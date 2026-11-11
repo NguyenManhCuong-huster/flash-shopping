@@ -311,6 +311,7 @@ const C = {
   '00436': [200, 'Lấy nhật ký AI thành công'],
   '00437': [409, 'Cuộc hội thoại đang xử lý một yêu cầu khác, vui lòng chờ'],
   '00438': [200, 'Đã hủy lượt xử lý của trợ lý AI'],
+  '00439': [409, 'Cuộc hội thoại này dùng bộ công cụ AI cũ, vui lòng tạo cuộc hội thoại mới'],
 
   // ---------- [BỔ SUNG] Nhóm ----------
   '00500': [200, 'Rời nhóm thành công'],

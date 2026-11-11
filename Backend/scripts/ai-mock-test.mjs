@@ -57,13 +57,9 @@ function respond(body, res) {
     return sse(res, [{ type: 'text', text: 'Để mình xem tủ lạnh nhé. ' }, { type: 'tool_use', id: 'toolu_1', name: 'list_fridge_items', input: {} }], 'tool_use');
   }
   if (lastToolName === 'list_fridge_items') {
-    return sse(res, [{ type: 'tool_use', id: 'toolu_2', name: 'create_shopping_list', input: { name: 'Đi chợ tối nay', date: tomorrow } }], 'tool_use');
-  }
-  if (lastToolName === 'create_shopping_list') {
-    const actionId = JSON.parse(toolResults[0].content).actionId;
     return sse(res, [{
-      type: 'tool_use', id: 'toolu_3', name: 'add_shopping_tasks',
-      input: { listId: `$action:${actionId}.listId`, tasks: [{ foodName: 'Cà chua', quantity: 0.5 }, { foodName: 'Hành lá', quantity: 1 }] },
+      type: 'tool_use', id: 'toolu_2', name: 'create_shopping_list',
+      input: { name: 'Đi chợ tối nay', date: tomorrow, tasks: [{ foodName: 'Cà chua', quantity: 0.5 }, { foodName: 'Hành lá', quantity: 1 }] },
     }], 'tool_use');
   }
   return sse(res, [{ type: 'text', text: 'Mình đã đề xuất tạo danh sách "Đi chợ tối nay" và thêm cà chua, hành lá. Bạn bấm xác nhận nhé!' }], 'end_turn');
@@ -123,11 +119,38 @@ async function scenario() {
   });
   ok('Mã 00410', r1.code === '00410', JSON.stringify(r1).slice(0, 300));
   ok('Đọc tủ lạnh tự thực thi', r1.data?.executedActions?.[0]?.tool === 'list_fridge_items' && r1.data.executedActions[0].resultCode === '00228');
-  ok('2 hành động chờ xác nhận', r1.data?.pendingActions?.length === 2);
-  const [pList, pTasks] = r1.data.pendingActions;
-  ok('Hành động thêm món phụ thuộc hành động tạo danh sách', pTasks.dependsOn === pList.actionId);
+  ok('1 hành động chờ xác nhận (tạo danh sách kèm món)', r1.data?.pendingActions?.length === 1);
+  const [pList] = r1.data.pendingActions;
   ok('Câu trả lời cuối', /xác nhận/.test(r1.data.message.content));
-  ok('Gửi 4 request tới LLM', requests.length === 4, `(${requests.length})`);
+  ok('Gửi 3 request tới LLM', requests.length === 3, `(${requests.length})`);
+  const toolNames = requests[0].body.tools.map((t) => t.name);
+  ok('Chỉ có công cụ xem/tạo (không sửa/xóa)', !toolNames.some((n) => /^(update|delete|remove|record)_/.test(n)) && toolNames.includes('create_shopping_list'));
+  // Soát mọi kết quả công cụ (dữ liệu của hệ thống) gửi cho LLM: không được có khóa id / ...Id / version
+  const leaked = [];
+  const scan = (v, path) => {
+    if (Array.isArray(v)) v.forEach((x, i) => scan(x, `${path}[${i}]`));
+    else if (v && typeof v === 'object') {
+      for (const [k, x] of Object.entries(v)) {
+        if (/^(id|version)$|Ids?$/.test(k)) leaked.push(`${path}.${k}`);
+        scan(x, `${path}.${k}`);
+      }
+    }
+  };
+  let scanned = 0;
+  for (const r of requests) {
+    for (const m of r.body.messages) {
+      for (const b of Array.isArray(m.content) ? m.content : []) {
+        if (b.type !== 'tool_result') continue;
+        scanned += 1;
+        try {
+          scan(JSON.parse(b.content), b.tool_use_id);
+        } catch {
+          /* nội dung không phải JSON */
+        }
+      }
+    }
+  }
+  ok(`Không có ID nào trong ${scanned} kết quả công cụ gửi cho LLM`, scanned > 0 && leaked.length === 0, leaked.slice(0, 5).join(', '));
 
   const sys0 = JSON.stringify(requests[0].body.system);
   const tools0 = JSON.stringify(requests[0].body.tools);
@@ -140,13 +163,13 @@ async function scenario() {
 
   const conversationId = r1.data.conversationId;
   console.log('\n== Xác nhận hành động');
-  const conf = await call('POST', '/ai/action/confirm', { token, body: { actionIds: [pList.actionId, pTasks.actionId] } });
+  const conf = await call('POST', '/ai/action/confirm', { token, body: { actionIds: [pList.actionId] } });
   ok('Mã 00423', conf.code === '00423', JSON.stringify(conf).slice(0, 300));
   const lists = await call('GET', '/shopping/task', { token });
   const list = lists.data.lists.find((l) => l.name === 'Đi chợ tối nay');
-  ok('Danh sách được tạo với 2 món (listId đã thay từ $action)', list?.tasks.length === 2);
-  const logs = await db.query(`SELECT count(*)::int AS n FROM audit_logs WHERE source = 'ai' AND ai_action_id = ANY($1::bigint[])`, [[pList.actionId, pTasks.actionId]]);
-  ok('audit_logs ghi source = ai kèm ai_action_id', logs.rows[0].n === 2);
+  ok('Danh sách được tạo với 2 món', list?.tasks.length === 2);
+  const logs = await db.query(`SELECT count(*)::int AS n FROM audit_logs WHERE source = 'ai' AND ai_action_id = ANY($1::bigint[])`, [[pList.actionId]]);
+  ok('audit_logs ghi source = ai kèm ai_action_id', logs.rows[0].n >= 2);
 
   console.log('\n== Lượt 2 (SSE): lịch sử chỉ nối thêm');
   const before = requests.length;

@@ -6,7 +6,7 @@ import { cleanString, ensure, isoDate, isPresent, maybeJson, pageMeta, parsePage
 import { localDate } from '../../common/time.js';
 import { removeUploaded } from '../../middlewares/upload.js';
 import { aiConfigured, Anthropic } from './llm.gateway.js';
-import { allTools, getTool, roleAllows } from './tools.js';
+import { allTools, getTool, roleAllows, TOOLSET_VERSION } from './tools.js';
 import {
   createAction, executeAction, failDependents, orderByDependency, toActionDto, validateArgs,
 } from './actions.js';
@@ -95,9 +95,10 @@ async function ownConversation(ctx, rawId) {
 const convDto = (c) => ({ id: c.id, title: c.title, status: c.status, createdAt: c.created_at, updatedAt: c.updated_at });
 
 async function createConversationRow(ctx, title = DEFAULT_TITLE) {
-  const { rows } = await query('INSERT INTO ai_conversations (user_id, group_id, title) VALUES ($1, $2, $3) RETURNING *', [
-    ctx.userId, ctx.groupId, title,
-  ]);
+  const { rows } = await query(
+    'INSERT INTO ai_conversations (user_id, group_id, title, toolset_version) VALUES ($1, $2, $3, $4) RETURNING *',
+    [ctx.userId, ctx.groupId, title, TOOLSET_VERSION],
+  );
   return rows[0];
 }
 
@@ -202,6 +203,7 @@ async function prepareChat(ctx, body) {
     ? await createConversationRow(ctx)
     : await ownConversation(ctx, body.conversationId);
   ensure(!running.has(conversation.id), '00437');
+  ensure(conversation.toolset_version === TOOLSET_VERSION, '00439');
 
   const ids = maybeJson(body.attachmentIds) ?? [];
   ensure(Array.isArray(ids) && ids.length <= 5, '00417');
@@ -375,7 +377,7 @@ export async function confirmActions(ctx, body = {}) {
       if (parent?.status !== 'executed') {
         await query(`UPDATE ai_actions SET status = 'failed', result_code = '00424' WHERE id = $1`, [a.id]);
         results.push({ actionId: a.id, status: 'failed', resultCode: '00424', message: 'Hành động phụ thuộc chưa được thực hiện' });
-        notes.push({ convId: a.conversation_id, text: `- #${a.id} ${a.summary}: thất bại vì hành động #${claimed.depends_on_action_id} chưa thực hiện` });
+        notes.push({ convId: a.conversation_id, text: `- ${a.summary}: thất bại vì hành động phụ thuộc chưa thực hiện` });
         continue;
       }
     }
@@ -383,7 +385,7 @@ export async function confirmActions(ctx, body = {}) {
     results.push(r);
     notes.push({
       convId: a.conversation_id,
-      text: `- #${a.id} ${a.summary}: ${r.status === 'executed' ? 'đã thực hiện' : 'thất bại'} (${r.resultCode} ${r.message})${r.result?.refs && Object.keys(r.result.refs).length ? ` ${JSON.stringify(r.result.refs)}` : ''}`,
+      text: `- ${a.summary}: ${r.status === 'executed' ? 'đã thực hiện' : 'thất bại'} (${r.resultCode} ${r.message})`,
     });
     if (r.status === 'failed') await failDependents([a.id], ctx.userId);
   }
@@ -405,7 +407,7 @@ export async function rejectActions(ctx, body = {}) {
   const failed = await failDependents(rows.map((r) => r.id), ctx.userId);
   await appendOutcomeNote(
     [...new Set(rows.map((r) => r.conversation_id))],
-    rows.map((r) => ({ convId: r.conversation_id, text: `- #${r.id} ${r.summary}: người dùng từ chối${reason ? ` (lý do: ${reason})` : ''}` })),
+    rows.map((r) => ({ convId: r.conversation_id, text: `- ${r.summary}: người dùng từ chối${reason ? ` (lý do: ${reason})` : ''}` })),
   );
   return result('00425', { rejected: rows.map((r) => r.id), failedDependents: failed });
 }
@@ -470,8 +472,8 @@ export async function acceptSuggestion(ctx, body = {}) {
   const s = await claimSuggestion(ctx, body.suggestionId, 'accepted');
   const out = await withTx(async (db) => {
     const conv = (
-      await db.query('INSERT INTO ai_conversations (user_id, group_id, title) VALUES ($1, $2, $3) RETURNING *', [
-        ctx.userId, ctx.groupId, s.title.slice(0, 150),
+      await db.query('INSERT INTO ai_conversations (user_id, group_id, title, toolset_version) VALUES ($1, $2, $3, $4) RETURNING *', [
+        ctx.userId, ctx.groupId, s.title.slice(0, 150), TOOLSET_VERSION,
       ])
     ).rows[0];
     await insertMessage(db, conv.id, 'tool', [{
@@ -496,7 +498,7 @@ export async function acceptSuggestion(ctx, body = {}) {
   }
   await insertMessage({ query }, out.id, 'tool', [{
     type: 'text',
-    text: `Các hành động đề xuất: ${created.map((a) => `#${a.id} ${a.summary}`).join('; ')}`,
+    text: `Các hành động đề xuất: ${created.map((a) => a.summary).join('; ')}`,
   }]);
   return result('00434', { conversationId: out.id, pendingActions: created.map(toActionDto) });
 }

@@ -16,6 +16,7 @@ curl http://localhost:3001/health
 | API | `http://localhost:3001` | đổi bằng `API_HOST_PORT` |
 | PostgreSQL | `localhost:5433` (dicho/dicho) | đổi bằng `DB_HOST_PORT` |
 | Mailpit (hộp thư OTP) | `http://localhost:8025` | mọi email xác minh đi vào đây |
+| Web | `http://localhost:8081` | bản web (`../Web`), đổi bằng `WEB_HOST_PORT` |
 
 Migration (`db/migrations/*.sql`) tự chạy khi khởi động. Tài khoản quản trị hệ thống được tạo từ
 `ADMIN_EMAIL` / `ADMIN_PASSWORD` (mặc định `admin@dicho.local` / `Admin@123`).
@@ -90,8 +91,12 @@ Không cấu hình FCM thì chỉ ghi log và lưu hộp thư (ứng dụng tự
 
 ## Trợ lý AI
 
-Đặt `AI_API_KEY` (Claude API) để bật chat. Model mặc định `claude-opus-5-5`, chỉnh bằng `AI_MODEL`, `AI_EFFORT`.
-Thao tác đọc tự chạy; tạo/sửa chờ xác nhận (trừ khi người dùng bật tự thực thi); xóa luôn chờ xác nhận; hành động
-chờ quá 15 phút tự hết hạn. Không cấu hình khóa API thì `ai/chat/` trả `00413`, các phần còn lại vẫn hoạt động.
+Đặt `AI_API_KEY` để bật chat. Đang dùng OpenRouter: `AI_PROVIDER=openrouter`, `AI_MODEL=anthropic/claude-sonnet-5.5`
+(endpoint tương thích Anthropic của OpenRouter, cùng SDK). Dùng Claude API trực tiếp: `AI_PROVIDER=anthropic`, `AI_MODEL=claude-opus-5-5`.
+**Chính sách công cụ (bộ v2):** AI chỉ **xem** và **tạo** dữ liệu của chính người dùng và gia đình họ (17 công cụ,
+`src/modules/ai/tools.js`); không có công cụ sửa/xóa/ghi nhận tiêu thụ/quản lý thành viên. AI **không thấy ID**: mọi tham
+chiếu bằng tên (thực phẩm, danh sách, công thức), kết quả gửi cho LLM được rút gọn và lọc sạch khóa `id`/`...Id`/`version`
+(`stripHidden`). Danh tính và nhóm luôn lấy từ token. Thao tác xem tự chạy; thao tác tạo chờ người dùng xác nhận (trừ khi
+bật tự thực thi); hành động chờ quá 15 phút tự hết hạn. Hội thoại tạo với bộ công cụ cũ chỉ xem lại được (mã 00439). Không cấu hình khóa API thì `ai/chat/` trả `00413`, các phần còn lại vẫn hoạt động.
 
 **HTTPS (NFR12):** khi triển khai thật, đặt API sau reverse proxy có TLS (Nginx/Caddy) và đổi `JWT_ACCESS_SECRET`.

@@ -59,13 +59,14 @@ export async function generateSuggestions({ groupId = null, force = false } = {}
         `Bữa ăn ngày ${ddmm(tomorrow)} còn thiếu ${missing.length} nguyên liệu - tạo danh sách đi chợ?`,
         {
           date: tomorrow,
-          actions: [
-            { tool: 'create_shopping_list', arguments: { name: `Đi chợ cho ngày ${ddmm(tomorrow)}`, date: today } },
-            {
-              tool: 'add_shopping_tasks',
-              arguments: { listId: '$ref:0.listId', tasks: missing.slice(0, 30).map((m) => ({ foodName: m.food.name, quantity: m.missingQuantity })) },
+          actions: [{
+            tool: 'create_shopping_list',
+            arguments: {
+              name: `Đi chợ cho ngày ${ddmm(tomorrow)}`,
+              date: today,
+              tasks: missing.slice(0, 30).map((m) => ({ foodName: m.food.name, quantity: m.missingQuantity })),
             },
-          ],
+          }],
         },
         new Date(Date.now() + 36 * 3600_000),
       );
@@ -83,16 +84,14 @@ export async function generateSuggestions({ groupId = null, force = false } = {}
       const tasks = low.map((f) => ({ foodName: f.name, quantity: 1 }));
       const next = (
         await query(
-          `SELECT id FROM shopping_lists WHERE group_id = $1 AND shopping_date >= $2::date ORDER BY shopping_date, id LIMIT 1`,
+          `SELECT name, to_char(shopping_date, 'YYYY-MM-DD') AS date FROM shopping_lists
+            WHERE group_id = $1 AND shopping_date >= $2::date ORDER BY shopping_date, id LIMIT 1`,
           [g.group_id, today],
         )
       ).rows[0];
       const actions = next
-        ? [{ tool: 'add_shopping_tasks', arguments: { listId: next.id, tasks } }]
-        : [
-          { tool: 'create_shopping_list', arguments: { name: 'Bổ sung đồ hay dùng', date: today } },
-          { tool: 'add_shopping_tasks', arguments: { listId: '$ref:0.listId', tasks } },
-        ];
+        ? [{ tool: 'add_shopping_tasks', arguments: { listName: next.name, listDate: next.date, tasks } }]
+        : [{ tool: 'create_shopping_list', arguments: { name: 'Bổ sung đồ hay dùng', date: today, tasks } }];
       created += await insertSuggestion(
         g.group_id, 'low_stock', `${today}:${low.map((f) => f.id).sort((a, b) => a - b).join(',')}`,
         `Đã hết ${low.map((f) => f.name).slice(0, 3).join(', ')}${low.length > 3 ? '...' : ''} - thêm vào danh sách mua?`,
