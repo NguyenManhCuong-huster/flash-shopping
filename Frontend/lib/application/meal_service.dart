@@ -20,7 +20,7 @@ class MealService {
   Future<List<IngredientStatus>> ingredientsForDay(DateTime day) => _repo.ingredients(date: isoDate(day));
 
   /// Thao tác tùy chọn riêng (extend): không tự chạy khi lưu kế hoạch.
-  Future<ShoppingList?> addMissingToShopping({MealPlan? plan, DateTime? day, int? listId}) =>
+  Future<ShoppingSession?> addMissingToShopping({MealPlan? plan, DateTime? day, int? listId}) =>
       _repo.addMissingToShopping(planId: plan?.id, date: plan == null && day != null ? isoDate(day) : null, listId: listId);
 
   // ---------- Công thức ----------

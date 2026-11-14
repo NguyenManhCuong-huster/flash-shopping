@@ -19,7 +19,7 @@ async function profile(userId) {
     [userId],
   );
   const u = rows[0];
-  if (!u) throw new AppError('00052');
+  if (!u) throw new AppError('00007');
   return {
     ...toUserDto(u),
     group: u.group_id ? { id: u.group_id, name: u.group_name, role: u.group_role } : null,
@@ -42,12 +42,12 @@ export async function updateMe(ctx, body = {}, file = null, imageUrl = null) {
 
   if (isPresent(body.username)) {
     const username = String(body.username).trim();
-    ensure(USERNAME_RE.test(username), '00081');
+    ensure(USERNAME_RE.test(username), '00029');
     push('username', username);
   }
   if (isPresent(body.name)) {
     const name = cleanString(body.name, { min: 4, max: 29 });
-    ensure(name, '00077');
+    ensure(name, '00028');
     push('name', name);
   }
   if (isPresent(body.language)) {
@@ -59,7 +59,7 @@ export async function updateMe(ctx, body = {}, file = null, imageUrl = null) {
     push('timezone', String(body.timezone).trim());
   }
   if (file) push('image_url', imageUrl);
-  ensure(sets.length > 0, '00025');
+  ensure(sets.length > 0, '00005');
 
   let old;
   try {
@@ -81,9 +81,9 @@ export async function updateMe(ctx, body = {}, file = null, imageUrl = null) {
 export async function changePassword(ctx, body = {}) {
   const { oldPassword, newPassword } = body;
   const valid = (p) => typeof p === 'string' && p.length >= 6 && p.length <= 20;
-  ensure(valid(oldPassword) && valid(newPassword), '00069');
+  ensure(valid(oldPassword) && valid(newPassword), '00027');
   const { rows } = await query('SELECT password_hash FROM users WHERE id = $1', [ctx.userId]);
-  ensure(rows[0], '00052');
+  ensure(rows[0], '00007');
   ensure(await bcrypt.compare(oldPassword, rows[0].password_hash), '00072');
   ensure(oldPassword !== newPassword, '00073');
   const hash = await bcrypt.hash(newPassword, 10);
@@ -103,7 +103,7 @@ export async function changePassword(ctx, body = {}) {
 export async function deleteMe(ctx) {
   const imageUrl = await withTx(async (db) => {
     const me = await db.query('SELECT image_url FROM users WHERE id = $1 FOR UPDATE', [ctx.userId]);
-    ensure(me.rows[0], '00052');
+    ensure(me.rows[0], '00007');
     const m = await db.query('SELECT group_id, role FROM group_members WHERE user_id = $1 FOR UPDATE', [ctx.userId]);
     const membership = m.rows[0];
     if (membership?.role === 'admin') {

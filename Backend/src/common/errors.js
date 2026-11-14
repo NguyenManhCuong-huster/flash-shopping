@@ -1,4 +1,4 @@
-import { messageOf, statusOf } from './codes.js';
+import { messageOf, statusOf } from './codes/index.js';
 
 /** Lỗi nghiệp vụ mang mã phản hồi của hệ thống. Service ném, controller/AI Guard bắt. */
 export class AppError extends Error {

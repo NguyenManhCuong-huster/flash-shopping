@@ -57,13 +57,13 @@ function respond(body, res) {
     return sse(res, [{ type: 'text', text: 'Để mình xem tủ lạnh nhé. ' }, { type: 'tool_use', id: 'toolu_1', name: 'list_fridge_items', input: {} }], 'tool_use');
   }
   if (lastToolName === 'list_fridge_items') {
-    return sse(res, [{ type: 'tool_use', id: 'toolu_2', name: 'create_shopping_list', input: { name: 'Đi chợ tối nay', date: tomorrow } }], 'tool_use');
+    return sse(res, [{ type: 'tool_use', id: 'toolu_2', name: 'create_shopping_list', input: { name: 'Đi chợ tối nay' } }], 'tool_use');
   }
   if (lastToolName === 'create_shopping_list') {
     const actionId = JSON.parse(toolResults[0].content).actionId;
     return sse(res, [{
-      type: 'tool_use', id: 'toolu_3', name: 'add_shopping_tasks',
-      input: { listId: `$action:${actionId}.listId`, tasks: [{ foodName: 'Cà chua', quantity: 0.5 }, { foodName: 'Hành lá', quantity: 1 }] },
+      type: 'tool_use', id: 'toolu_3', name: 'add_shopping_items',
+      input: { listId: `$action:${actionId}.listId`, items: [{ foodName: 'Cà chua', quantity: 0.5 }, { foodName: 'Hành lá', quantity: 1 }] },
     }], 'tool_use');
   }
   return sse(res, [{ type: 'text', text: 'Mình đã đề xuất tạo danh sách "Đi chợ tối nay" và thêm cà chua, hành lá. Bạn bấm xác nhận nhé!' }], 'end_turn');
@@ -122,7 +122,7 @@ async function scenario() {
     body: { message: 'Thiếu gì thì tạo danh sách đi chợ tối nay', clientContext: { screen: 'fridge' } },
   });
   ok('Mã 00410', r1.code === '00410', JSON.stringify(r1).slice(0, 300));
-  ok('Đọc tủ lạnh tự thực thi', r1.data?.executedActions?.[0]?.tool === 'list_fridge_items' && r1.data.executedActions[0].resultCode === '00228');
+  ok('Đọc tủ lạnh tự thực thi', r1.data?.executedActions?.[0]?.tool === 'list_fridge_items' && r1.data.executedActions[0].resultCode === '00190');
   ok('2 hành động chờ xác nhận', r1.data?.pendingActions?.length === 2);
   const [pList, pTasks] = r1.data.pendingActions;
   ok('Hành động thêm món phụ thuộc hành động tạo danh sách', pTasks.dependsOn === pList.actionId);
@@ -142,9 +142,9 @@ async function scenario() {
   console.log('\n== Xác nhận hành động');
   const conf = await call('POST', '/ai/action/confirm', { token, body: { actionIds: [pList.actionId, pTasks.actionId] } });
   ok('Mã 00423', conf.code === '00423', JSON.stringify(conf).slice(0, 300));
-  const lists = await call('GET', '/shopping/task', { token });
+  const lists = await call('GET', '/shopping/item', { token });
   const list = lists.data.lists.find((l) => l.name === 'Đi chợ tối nay');
-  ok('Danh sách được tạo với 2 món (listId đã thay từ $action)', list?.tasks.length === 2);
+  ok('Danh sách được tạo với 2 món (listId đã thay từ $action)', list?.items.length === 2);
   const logs = await db.query(`SELECT count(*)::int AS n FROM audit_logs WHERE source = 'ai' AND ai_action_id = ANY($1::bigint[])`, [[pList.actionId, pTasks.actionId]]);
   ok('audit_logs ghi source = ai kèm ai_action_id', logs.rows[0].n === 2);
 
@@ -164,7 +164,7 @@ async function scenario() {
   ok('Kết quả xác nhận được nối vào hội thoại', next.some((m) => m.role === 'user' && JSON.stringify(m.content).includes('Kết quả từ ứng dụng')));
 
   const detail = await call('GET', `/ai/conversation/${conversationId}`, { token });
-  ok('Chi tiết hội thoại ẩn khối ngữ cảnh', detail.code === '00406' && detail.data.messages.every((m) => !m.text.includes('Ngữ cảnh hệ thống')));
+  ok('Chi tiết hội thoại ẩn khối ngữ cảnh', detail.code === '00405' && detail.data.messages.every((m) => !m.text.includes('Ngữ cảnh hệ thống')));
   const usage = await call('GET', '/ai/usage', { token });
   ok('Ghi nhận token sử dụng', usage.data?.days?.[0]?.requests === 2 && usage.data.todayUsed > 0);
   await db.end();

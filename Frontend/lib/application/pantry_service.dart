@@ -32,8 +32,8 @@ class PantryService {
   Future<void> deleteFood(Food food) => _repo.deleteFood(food.name);
 
   // ---------- Tủ lạnh ----------
-  Future<FridgeResult> fridge({String? q, StorageLocation? location, int? expiringDays, int page = 1}) =>
-      _repo.fridge(q: q, location: location?.code, expiringDays: expiringDays, page: page);
+  Future<FridgeResult> fridge({String? query, StorageLocation? location, int? expiringDays, int page = 1}) =>
+      _repo.fridge(query: query, location: location?.code, expiringDays: expiringDays, page: page);
 
   Future<FridgeItem> fridgeItem(int id) => _repo.fridgeItem(id);
 
@@ -41,11 +41,10 @@ class PantryService {
       _repo.addToFridge(foodName: foodName, quantity: quantity, useWithin: isoDate(expiry), location: location.code, note: note?.trim());
 
   /// Gửi kèm version: nếu người khác đã sửa trước, backend trả 00523 để người dùng tải lại.
-  Future<FridgeItem> updateFridgeItem(FridgeItem item, {double? quantity, DateTime? expiry, StorageLocation? location, String? note}) => _repo.updateFridgeItem(
+  Future<FridgeItem> updateFridgeItem(FridgeItem item, {DateTime? useWithin, StorageLocation? location, String? note}) => _repo.updateFridgeItem(
         itemId: item.id,
         version: item.version,
-        quantity: quantity != item.quantity ? quantity : null,
-        useWithin: expiry == null ? null : isoDate(expiry),
+        useWithin: useWithin == null ? null : isoDate(useWithin),
         location: location != item.location ? location?.code : null,
         note: note != item.note ? (note ?? '') : null,
       );

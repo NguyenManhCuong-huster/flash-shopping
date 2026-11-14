@@ -17,7 +17,7 @@ dependencies:
   shared_preferences: ^2.3.2
   image_picker: ^1.1.2
   intl: any
-
+  lucide_flutter: ^1.66.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -25,3 +25,30 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter_18pt-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter_18pt-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter_18pt-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter_18pt-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Inter_18pt-Italic.ttf
+          weight: 400
+          style: italic
+        - asset: assets/fonts/Inter_18pt-MediumItalic.ttf
+          weight: 500
+          style: italic
+        - asset: assets/fonts/Inter_18pt-SemiBoldItalic.ttf
+          weight: 600
+          style: italic
+        - asset: assets/fonts/Inter_18pt-BoldItalic.ttf
+          weight: 700
+          style: italic
+
+  assets:
+    - assets/images/

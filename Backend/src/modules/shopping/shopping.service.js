@@ -3,7 +3,7 @@ import { query, withTx } from '../../db/pool.js';
 import { AppError, result } from '../../common/errors.js';
 import { messageOf } from '../../common/codes.js';
 import {
-  cleanString, ensure, isoDate, isPresent, LOCATIONS, maybeJson, optionalNote, pageMeta, parsePage, positiveNumber, toId,
+  cleanString, ensure, isPresent, LOCATIONS, maybeJson, optionalNote, pageMeta, parsePage, positiveNumber, toId,
 } from '../../common/validate.js';
 import { requireLeader, requireMember } from '../../common/permissions.js';
 import { audit } from '../../common/audit.js';
@@ -17,18 +17,18 @@ const LIST_SELECT = `
     FROM shopping_lists sl
     LEFT JOIN users au ON au.id = sl.assigned_user_id`;
 
-const TASK_SELECT = `
-  SELECT t.id, t.list_id, t.quantity, t.status, t.bought_quantity, t.bought_at, t.bought_by,
-         bu.name AS bought_by_name,
+const ITEM_SELECT = `
+  SELECT t.id, t.list_id, t.quantity, t.status, t.purchased_quantity, t.purchased_at, t.purchased_by,
+         bu.name AS purchased_by_name,
          f.id AS food_id, f.name AS food_name, f.image_url AS food_image_url,
          c.id AS category_id, c.name AS category_name, un.id AS unit_id, un.name AS unit_name
-    FROM shopping_tasks t
+    FROM shopping_items t
     JOIN foods f ON f.id = t.food_id
     JOIN categories c ON c.id = f.category_id
     JOIN units un ON un.id = f.unit_id
-    LEFT JOIN users bu ON bu.id = t.bought_by`;
+    LEFT JOIN users bu ON bu.id = t.purchased_by`;
 
-const toTaskDto = (t) => ({
+const toItemDto = (t) => ({
   id: t.id,
   listId: t.list_id,
   food: {
@@ -40,32 +40,32 @@ const toTaskDto = (t) => ({
   },
   quantity: t.quantity,
   status: t.status,
-  boughtQuantity: t.bought_quantity,
-  boughtAt: t.bought_at,
-  boughtBy: t.bought_by ? { id: t.bought_by, name: t.bought_by_name } : null,
+  purchasedQuantity: t.purchased_quantity,
+  purchasedAt: t.purchased_at,
+  purchasedBy: t.purchased_by ? { id: t.purchased_by, name: t.purchased_by_name } : null,
 });
 
-function toListDto(l, tasks = []) {
-  const bought = tasks.filter((t) => t.status === 'bought').length;
+function toListDto(l, items = []) {
+  const purchased = items.filter((t) => t.status !== 'pending').length;
   return {
     id: l.id,
     name: l.name,
     note: l.note,
-    date: l.shopping_date,
+    createdAt: l.created_at,
+    completedAt: l.completed_at,
     assignedTo: l.assigned_user_id
       ? { id: l.assigned_user_id, name: l.assigned_name, username: l.assigned_username, imageUrl: l.assigned_image }
       : null,
     createdBy: l.created_by,
-    createdAt: l.created_at,
     updatedAt: l.updated_at,
-    tasks: tasks.map(toTaskDto),
-    progress: { total: tasks.length, bought, done: tasks.length > 0 && bought === tasks.length },
+    items: items.map(toItemDto),
+    progress: { total: items.length, purchased, done: items.length > 0 && purchased === items.length },
   };
 }
 
-async function withTasks(lists) {
+async function withItems(lists) {
   if (!lists.length) return [];
-  const { rows } = await query(`${TASK_SELECT} WHERE t.list_id = ANY($1::bigint[]) ORDER BY t.status DESC, t.id`, [
+  const { rows } = await query(`${ITEM_SELECT} WHERE t.list_id = ANY($1::bigint[]) ORDER BY t.status DESC, t.id`, [
     lists.map((l) => l.id),
   ]);
   const byList = new Map();
@@ -78,7 +78,7 @@ async function withTasks(lists) {
 
 export async function loadList(groupId, listId) {
   const { rows } = await query(`${LIST_SELECT} WHERE sl.id = $1 AND sl.group_id = $2`, [listId, groupId]);
-  return rows[0] ? (await withTasks(rows))[0] : null;
+  return rows[0] ? (await withItems(rows))[0] : null;
 }
 
 /** Người được giao phải tồn tại và thuộc cùng nhóm (include bắt buộc của UC03). */
@@ -94,36 +94,34 @@ async function resolveAssignee(db, groupId, username, notFoundCode, otherGroupCo
 
 /** POST shopping/ - Trưởng nhóm tạo danh sách, có thể giao cho thành viên. */
 export async function createList(ctx, body = {}) {
-  ensure(isPresent(body.name) || isPresent(body.date), '00238');
+  ensure(isPresent(body.name), '00005');
   const name = cleanString(body.name, { min: 1, max: 150 });
   ensure(name, '00239');
   const note = optionalNote(body.note);
-  ensure(note.ok, '00241');
-  const date = isoDate(body.date);
-  ensure(date, '00242');
-  const groupId = requireLeader(ctx, '00288', '00243');
+  ensure(note.ok, '00193');
+  const groupId = requireLeader(ctx, '00096', '00104');
 
   const id = await withTx(async (db) => {
     const assignee = isPresent(body.assignToUsername)
-      ? await resolveAssignee(db, groupId, body.assignToUsername, '00245', '00246')
+      ? await resolveAssignee(db, groupId, body.assignToUsername, '00007', '00104')
       : null;
     const { rows } = await db.query(
-      `INSERT INTO shopping_lists (group_id, assigned_user_id, name, note, shopping_date, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [groupId, assignee, name, note.value, date, ctx.userId],
+      `INSERT INTO shopping_lists (group_id, assigned_user_id, name, note, created_by)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [groupId, assignee, name, note.value, ctx.userId],
     );
-    await audit(db, ctx, 'shopping.create_list', 'shopping_list', rows[0].id, { name, assignee, date });
+    await audit(db, ctx, 'shopping.create_list', 'shopping_list', rows[0].id, { name, assignee });
     return rows[0].id;
   });
   return result('00249', { listId: id, list: await loadList(groupId, id) });
 }
 
-/** PUT shopping/ - Sửa tên/người được giao/ghi chú/ngày. newAssignToUsername = "" để bỏ giao. */
+/** PUT shopping/ - Sửa tên/người được giao/ghi chú. newAssignToUsername = "" để bỏ giao. */
 export async function updateList(ctx, body = {}) {
   const listId = toId(body.listId);
   ensure(listId, '00251');
-  const keys = ['newName', 'newAssignToUsername', 'newNote', 'newDate'];
-  ensure(keys.some((k) => body[k] !== undefined), '00252');
+  const keys = ['newName', 'newAssignToUsername', 'newNote'];
+  ensure(keys.some((k) => body[k] !== undefined), '00005');
   let newName = null;
   if (body.newName !== undefined) {
     newName = cleanString(body.newName, { min: 1, max: 150 });
@@ -131,13 +129,8 @@ export async function updateList(ctx, body = {}) {
   }
   if (body.newAssignToUsername !== undefined) ensure(typeof body.newAssignToUsername === 'string', '00254');
   const newNote = body.newNote !== undefined ? optionalNote(body.newNote) : null;
-  if (newNote) ensure(newNote.ok, '00255');
-  let newDate = null;
-  if (body.newDate !== undefined) {
-    newDate = isoDate(body.newDate);
-    ensure(newDate, '00256');
-  }
-  const groupId = requireLeader(ctx, '00288', '00258');
+  if (newNote) ensure(newNote.ok, '00193');
+  const groupId = requireLeader(ctx, '00096', '00104');
 
   await withTx(async (db) => {
     const cur = (await db.query('SELECT id FROM shopping_lists WHERE id = $1 AND group_id = $2 FOR UPDATE', [listId, groupId]))
@@ -151,16 +144,15 @@ export async function updateList(ctx, body = {}) {
     };
     if (newName) push('name', newName);
     if (newNote) push('note', newNote.value);
-    if (newDate) push('shopping_date', newDate);
     if (body.newAssignToUsername !== undefined) {
       const assignee = body.newAssignToUsername.trim() === ''
         ? null
-        : await resolveAssignee(db, groupId, body.newAssignToUsername, '00262', '00263');
+        : await resolveAssignee(db, groupId, body.newAssignToUsername, '00007', '00104');
       push('assigned_user_id', assignee);
     }
     await db.query(`UPDATE shopping_lists SET ${sets.join(', ')} WHERE id = $1`, params);
     await audit(db, ctx, 'shopping.update_list', 'shopping_list', listId, {
-      newName, newDate, newAssignToUsername: body.newAssignToUsername,
+      newName, newAssignToUsername: body.newAssignToUsername,
     });
   });
   return result('00266', { list: await loadList(groupId, listId) });
@@ -168,21 +160,21 @@ export async function updateList(ctx, body = {}) {
 
 /** DELETE shopping/ {listId} */
 export async function deleteList(ctx, body = {}) {
-  ensure(body && Object.keys(body).length, '00267');
+  ensure(body && Object.keys(body).length, '00005');
   const listId = toId(body.listId);
-  ensure(listId, '00268');
-  const groupId = requireLeader(ctx, '00288', '00270');
+  ensure(listId, '00251');
+  const groupId = requireLeader(ctx, '00096', '00104');
   await withTx(async (db) => {
     const del = await db.query('DELETE FROM shopping_lists WHERE id = $1 AND group_id = $2 RETURNING name', [listId, groupId]);
-    ensure(del.rowCount, '00272');
+    ensure(del.rowCount, '00260');
     await audit(db, ctx, 'shopping.delete_list', 'shopping_list', listId, { name: del.rows[0].name });
   });
   return result('00275');
 }
 
-/** GET shopping/task/?from&to&status=open|done&assignedToMe=true&page&limit - Danh sách kèm nhiệm vụ. */
+/** GET shopping/item/?from&to&status=open|done&assignedToMe=true&page&limit - Danh sách kèm mặt hàng. */
 export async function listLists(ctx, q = {}) {
-  const groupId = requireMember(ctx, '00288');
+  const groupId = requireMember(ctx, '00096');
   const p = parsePage(q, { defaultLimit: 20 });
   const params = [groupId];
   const where = ['sl.group_id = $1'];
@@ -190,54 +182,52 @@ export async function listLists(ctx, q = {}) {
     params.push(v);
     where.push(sql.replaceAll('?', `$${params.length}`));
   };
-  if (isoDate(q.from)) add('sl.shopping_date >= ?::date', q.from);
-  if (isoDate(q.to)) add('sl.shopping_date <= ?::date', q.to);
   if (q.assignedToMe === 'true') add('sl.assigned_user_id = ?', ctx.userId);
-  if (q.status === 'open') where.push(`(NOT EXISTS (SELECT 1 FROM shopping_tasks t WHERE t.list_id = sl.id)
-                                       OR EXISTS (SELECT 1 FROM shopping_tasks t WHERE t.list_id = sl.id AND t.status = 'pending'))`);
-  if (q.status === 'done') where.push(`EXISTS (SELECT 1 FROM shopping_tasks t WHERE t.list_id = sl.id)
-                                       AND NOT EXISTS (SELECT 1 FROM shopping_tasks t WHERE t.list_id = sl.id AND t.status = 'pending')`);
+  if (q.status === 'open') where.push(`(NOT EXISTS (SELECT 1 FROM shopping_items t WHERE t.list_id = sl.id)
+                                       OR EXISTS (SELECT 1 FROM shopping_items t WHERE t.list_id = sl.id AND t.status = 'pending'))`);
+  if (q.status === 'done') where.push(`EXISTS (SELECT 1 FROM shopping_items t WHERE t.list_id = sl.id)
+                                       AND NOT EXISTS (SELECT 1 FROM shopping_items t WHERE t.list_id = sl.id AND t.status = 'pending')`);
   const w = where.join(' AND ');
   const total = (await query(`SELECT count(*)::int AS n FROM shopping_lists sl WHERE ${w}`, params)).rows[0].n;
   const { rows } = await query(
-    `${LIST_SELECT} WHERE ${w} ORDER BY sl.shopping_date DESC, sl.id DESC LIMIT ${p.limit} OFFSET ${p.offset}`,
+    `${LIST_SELECT} WHERE ${w} ORDER BY sl.created_at DESC, sl.id DESC LIMIT ${p.limit} OFFSET ${p.offset}`,
     params,
   );
-  return result('00292', { lists: await withTasks(rows), ...pageMeta(p, total) });
+  return result('00292', { lists: await withItems(rows), ...pageMeta(p, total) });
 }
 
 /** GET shopping/:listId/ */
 export async function getList(ctx, rawId) {
   const listId = toId(rawId);
   ensure(rawId !== undefined, '00022');
-  ensure(listId, '00023');
-  const groupId = requireMember(ctx, '00288');
+  ensure(listId, '00022');
+  const groupId = requireMember(ctx, '00096');
   const list = await loadList(groupId, listId);
   ensure(list, '00260');
   return result('00570', { list });
 }
 
-// ===================== Nhiệm vụ mua (shopping_tasks) =====================
+// ===================== Mặt hàng cần mua (shopping_items) =====================
 
 /**
- * POST shopping/task/ {listId, tasks:[{foodName, quantity}]}
+ * POST shopping/item/ {listId, items:[{foodName, quantity}]}
  * Kiểm tra từng mục; lưu các mục hợp lệ, trả rõ mục lỗi (UC03 bước 5, 5a).
  */
-export async function createTasks(ctx, body = {}) {
-  ensure(body.listId !== undefined || body.tasks !== undefined, '00276');
+export async function createItems(ctx, body = {}) {
+  ensure(body.listId !== undefined || body.items !== undefined, '00005');
   const listId = toId(body.listId);
-  ensure(listId, '00277');
-  const tasks = maybeJson(body.tasks);
-  ensure(Array.isArray(tasks) && tasks.length > 0 && tasks.length <= 100, '00278');
-  const groupId = requireLeader(ctx, '00288', '00281');
+  ensure(listId, '00251');
+  const items = maybeJson(body.items);
+  ensure(Array.isArray(items) && items.length > 0 && items.length <= 100, '00278');
+  const groupId = requireLeader(ctx, '00096', '00104');
 
   const out = await withTx(async (db) => {
     const list = (await db.query('SELECT id FROM shopping_lists WHERE id = $1 AND group_id = $2 FOR UPDATE', [listId, groupId]))
       .rows[0];
-    ensure(list, '00283');
+    ensure(list, '00260');
     const created = [];
     const failed = [];
-    for (const [index, t] of tasks.entries()) {
+    for (const [index, t] of items.entries()) {
       const foodName = typeof t?.foodName === 'string' ? t.foodName.trim() : '';
       const quantity = positiveNumber(t?.quantity);
       if (!foodName || !quantity) {
@@ -246,23 +236,23 @@ export async function createTasks(ctx, body = {}) {
       }
       const food = await findFoodByName(db, groupId, foodName);
       if (!food) {
-        failed.push({ index, foodName, code: '00285' });
+        failed.push({ index, foodName, code: '00167' });
         continue;
       }
       const ins = await db.query(
-        `INSERT INTO shopping_tasks (list_id, group_id, food_id, quantity) VALUES ($1, $2, $3, $4)
+        `INSERT INTO shopping_items (list_id, group_id, food_id, quantity) VALUES ($1, $2, $3, $4)
          ON CONFLICT (list_id, food_id) DO NOTHING RETURNING id`,
         [listId, groupId, food.id, quantity],
       );
       if (!ins.rowCount) {
-        failed.push({ index, foodName, code: '00285x' });
+        failed.push({ index, foodName, code: '00151' });
         continue;
       }
-      created.push({ index, taskId: ins.rows[0].id, foodName: food.name, quantity });
+      created.push({ index, itemId: ins.rows[0].id, foodName: food.name, quantity });
     }
     if (created.length) {
-      await db.query('UPDATE shopping_lists SET updated_at = now() WHERE id = $1', [listId]);
-      await audit(db, ctx, 'shopping.create_tasks', 'shopping_list', listId, { count: created.length });
+      await db.query('UPDATE shopping_lists SET updated_at = now(), completed_at = NULL WHERE id = $1', [listId]);
+      await audit(db, ctx, 'shopping.create_items', 'shopping_list', listId, { count: created.length });
     }
     return { created, failed };
   });
@@ -276,30 +266,30 @@ export async function createTasks(ctx, body = {}) {
   });
 }
 
-/** PUT shopping/task/ {taskId, newFoodName?, newQuantity?} */
-export async function updateTask(ctx, body = {}) {
-  ensure(body && Object.keys(body).length, '00300');
-  const taskId = toId(body.taskId);
-  ensure(taskId, '00301');
-  ensure(isPresent(body.newFoodName) || isPresent(body.newQuantity), '00302');
-  if (body.newFoodName !== undefined && body.newFoodName !== '') ensure(cleanString(body.newFoodName, { max: 150 }), '00303');
+/** PUT shopping/item/ {itemId, newFoodName?, newQuantity?} */
+export async function updateItem(ctx, body = {}) {
+  ensure(body && Object.keys(body).length, '00005');
+  const itemId = toId(body.itemId);
+  ensure(itemId, '00294');
+  ensure(isPresent(body.newFoodName) || isPresent(body.newQuantity), '00005');
+  if (body.newFoodName !== undefined && body.newFoodName !== '') ensure(cleanString(body.newFoodName, { max: 150 }), '00148');
   let newQuantity = null;
   if (isPresent(body.newQuantity)) {
     newQuantity = positiveNumber(body.newQuantity);
-    ensure(newQuantity, '00304');
+    ensure(newQuantity, '00192');
   }
-  const groupId = requireLeader(ctx, '00288', '00307');
+  const groupId = requireLeader(ctx, '00096', '00104');
   try {
     const listId = await withTx(async (db) => {
-      const task = (await db.query('SELECT * FROM shopping_tasks WHERE id = $1 AND group_id = $2 FOR UPDATE', [taskId, groupId]))
+      const item = (await db.query('SELECT * FROM shopping_items WHERE id = $1 AND group_id = $2 FOR UPDATE', [itemId, groupId]))
         .rows[0];
-      ensure(task, '00306');
-      ensure(task.status === 'pending', '00514');
+      ensure(item, '00296');
+      ensure(item.status === 'pending', '00514');
       const sets = [];
-      const params = [taskId];
+      const params = [itemId];
       if (isPresent(body.newFoodName)) {
         const food = await findFoodByName(db, groupId, body.newFoodName);
-        ensure(food, '00308');
+        ensure(food, '00167');
         params.push(food.id);
         sets.push(`food_id = $${params.length}`);
       }
@@ -307,81 +297,70 @@ export async function updateTask(ctx, body = {}) {
         params.push(newQuantity);
         sets.push(`quantity = $${params.length}`);
       }
-      await db.query(`UPDATE shopping_tasks SET ${sets.join(', ')} WHERE id = $1`, params);
-      await audit(db, ctx, 'shopping.update_task', 'shopping_task', taskId, { newFoodName: body.newFoodName, newQuantity });
-      return task.list_id;
+      await db.query(`UPDATE shopping_items SET ${sets.join(', ')} WHERE id = $1`, params);
+      await audit(db, ctx, 'shopping.update_item', 'shopping_item', itemId, { newFoodName: body.newFoodName, newQuantity });
+      return item.list_id;
     });
-    const task = (await query(`${TASK_SELECT} WHERE t.id = $1`, [taskId])).rows[0];
-    return result('00312', { task: toTaskDto(task), listId });
+    const item = (await query(`${ITEM_SELECT} WHERE t.id = $1`, [itemId])).rows[0];
+    return result('00312', { item: toItemDto(item), listId });
   } catch (err) {
-    if (err.code === '23505') throw new AppError('00309');
+    if (err.code === '23505') throw new AppError('00151');
     throw err;
   }
 }
 
-/** DELETE shopping/task/ {taskId} */
-export async function deleteTask(ctx, body = {}) {
-  ensure(body && Object.keys(body).length, '00293');
-  const taskId = toId(body.taskId);
-  ensure(taskId, '00294');
-  const groupId = requireLeader(ctx, '00288', '00297');
+/** DELETE shopping/item/ {itemId} */
+export async function deleteItem(ctx, body = {}) {
+  ensure(body && Object.keys(body).length, '00005');
+  const itemId = toId(body.itemId);
+  ensure(itemId, '00294');
+  const groupId = requireLeader(ctx, '00096', '00104');
   await withTx(async (db) => {
-    const del = await db.query('DELETE FROM shopping_tasks WHERE id = $1 AND group_id = $2 RETURNING list_id', [taskId, groupId]);
+    const del = await db.query('DELETE FROM shopping_items WHERE id = $1 AND group_id = $2 RETURNING list_id', [itemId, groupId]);
     ensure(del.rowCount, '00296');
-    await audit(db, ctx, 'shopping.delete_task', 'shopping_task', taskId, { listId: del.rows[0].list_id });
+    await audit(db, ctx, 'shopping.delete_item', 'shopping_item', itemId, { listId: del.rows[0].list_id });
   });
   return result('00299');
 }
 
-// ===================== UC04 - Xác nhận mua & nhập tủ lạnh =====================
+// ===================== UC04 - Xác nhận mua / nhập tủ lạnh =====================
 
 function normalizePurchaseItems(raw, tz) {
   const items = maybeJson(raw);
   ensure(Array.isArray(items) && items.length > 0 && items.length <= 100, '00513');
   const seen = new Set();
   return items.map((it) => {
-    const taskId = toId(it?.taskId);
-    ensure(taskId && !seen.has(taskId), '00513', { taskId: it?.taskId ?? null });
-    seen.add(taskId);
-    let boughtQuantity = null;
-    if (it.boughtQuantity !== undefined && it.boughtQuantity !== null && it.boughtQuantity !== '') {
-      boughtQuantity = positiveNumber(it.boughtQuantity);
-      ensure(boughtQuantity, '00513', { taskId, field: 'boughtQuantity' });
-    }
-    const addToFridge = !(it.addToFridge === false || it.addToFridge === 'false');
-    let useWithin = null;
-    let location = null;
-    if (addToFridge) {
-      useWithin = parseUseWithin(it.useWithin, tz);
-      ensure(useWithin, '00518', { taskId });
-      location = it.location ?? 'cool';
-      ensure(LOCATIONS.includes(location), '00517', { taskId });
+    const itemId = toId(it?.itemId);
+    ensure(itemId && !seen.has(itemId), '00513', { itemId: it?.itemId ?? null });
+    seen.add(itemId);
+    let purchasedQuantity = null;
+    if (it.purchasedQuantity !== undefined && it.purchasedQuantity !== null && it.purchasedQuantity !== '') {
+      purchasedQuantity = positiveNumber(it.purchasedQuantity);
+      ensure(purchasedQuantity, '00513', { itemId, field: 'purchasedQuantity' });
     }
     const note = optionalNote(it.note, 500);
-    ensure(note.ok, '00513', { taskId, field: 'note' });
+    ensure(note.ok, '00513', { itemId, field: 'note' });
     return {
-      taskId, boughtQuantity, addToFridge, useWithin, location, note: note.value,
-      // Dạng gốc dùng để băm => gửi lại cùng nội dung luôn ra cùng hash (kể cả useWithin dạng "số ngày")
-      raw: { taskId, boughtQuantity, addToFridge, useWithin: it.useWithin ?? null, location, note: note.value },
+      itemId, purchasedQuantity, note: note.value,
+      raw: { itemId, purchasedQuantity, note: note.value },
     };
   });
 }
 
 /**
  * POST shopping/purchase/  (header Idempotency-Key)
- * body: { listId, items: [{ taskId, boughtQuantity?, addToFridge?=true, useWithin, location?, note? }] }
+ * body: { listId, items: [{ itemId, purchasedQuantity?, note? }] }
  *
  * Trong MỘT giao dịch: ghi khóa chống lặp -> khóa danh sách & nhiệm vụ -> đánh dấu đã mua ->
- * ghi lịch sử mua -> cộng tồn tủ lạnh -> lưu kết quả vào khóa. Gửi lại cùng khóa => trả kết quả cũ,
- * không cộng tồn lần nữa (NFR09, NFR10).
+ * ghi lịch sử mua -> tạo thông báo -> lưu kết quả vào khóa.
  */
 export async function confirmPurchase(ctx, body = {}, idempotencyKey) {
   const key = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
   ensure(key.length >= 8 && key.length <= 100, '00511');
   const listId = toId(body.listId);
-  ensure(listId, '00277');
+  ensure(listId, '00251');
   const items = normalizePurchaseItems(body.items, ctx.timezone);
-  const groupId = requireMember(ctx, '00288');
+  const groupId = requireMember(ctx, '00096');
   const requestHash = crypto
     .createHash('sha256')
     .update(JSON.stringify({ listId, items: items.map((i) => i.raw) }))
@@ -403,55 +382,60 @@ export async function confirmPurchase(ctx, body = {}, idempotencyKey) {
     const list = (
       await db.query('SELECT id, assigned_user_id FROM shopping_lists WHERE id = $1 AND group_id = $2 FOR UPDATE', [listId, groupId])
     ).rows[0];
-    ensure(list, '00283');
+    ensure(list, '00260');
     ensure(ctx.groupRole === 'admin' || list.assigned_user_id === ctx.userId, '00515');
 
-    const { rows: tasks } = await db.query(
+    const { rows: dbItems } = await db.query(
       `SELECT t.id, t.quantity, t.status, f.id AS food_id, f.name AS food_name, un.name AS unit_name, c.name AS category_name
-         FROM shopping_tasks t
+         FROM shopping_items t
          JOIN foods f ON f.id = t.food_id
          JOIN units un ON un.id = f.unit_id
          JOIN categories c ON c.id = f.category_id
         WHERE t.list_id = $1 AND t.id = ANY($2::bigint[])
         FOR UPDATE OF t`,
-      [listId, items.map((i) => i.taskId)],
+      [listId, items.map((i) => i.itemId)],
     );
-    const byId = new Map(tasks.map((t) => [t.id, t]));
+    const byId = new Map(dbItems.map((t) => [t.id, t]));
 
     const results = [];
     for (const it of items) {
-      const task = byId.get(it.taskId);
-      ensure(task, '00513', { taskId: it.taskId, reason: 'Nhiệm vụ không thuộc danh sách' });
-      ensure(task.status === 'pending', '00514', { taskId: it.taskId });
-      const qty = it.boughtQuantity ?? task.quantity;
+      const item = byId.get(it.itemId);
+      ensure(item, '00513', { itemId: it.itemId, reason: 'Nhiệm vụ không thuộc danh sách' });
+      ensure(item.status === 'pending', '00514', { itemId: it.itemId });
+      const qty = it.purchasedQuantity ?? item.quantity;
       await db.query(
-        `UPDATE shopping_tasks SET status = 'bought', bought_quantity = $2, bought_by = $3, bought_at = now() WHERE id = $1`,
-        [task.id, qty, ctx.userId],
+        `UPDATE shopping_items SET status = 'bought', purchased_quantity = $2, purchased_by = $3, purchased_at = now() WHERE id = $1`,
+        [item.id, qty, ctx.userId],
       );
       await recordStockEvent(db, {
-        groupId, food: task, type: 'purchase', quantity: qty, actorUserId: ctx.userId, shoppingTaskId: task.id, note: it.note,
+        groupId, food: item, type: 'purchase', quantity: qty, actorUserId: ctx.userId, shoppingItemId: item.id, note: it.note,
       });
-      let fridge = null;
-      if (it.addToFridge) {
-        // Một mục tủ lạnh / thực phẩm: cộng dồn số lượng, giữ hạn sớm nhất để nhắc hạn an toàn
-        const f = await db.query(
-          `INSERT INTO fridge_items (group_id, food_id, quantity, use_within, location, note)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (group_id, food_id) DO UPDATE SET
-             quantity   = fridge_items.quantity + EXCLUDED.quantity,
-             use_within = LEAST(fridge_items.use_within, EXCLUDED.use_within),
-             note       = COALESCE(EXCLUDED.note, fridge_items.note),
-             version    = fridge_items.version + 1,
-             updated_at = now()
-           RETURNING id, quantity, use_within`,
-          [groupId, task.food_id, qty, it.useWithin, it.location, it.note],
-        );
-        fridge = { itemId: f.rows[0].id, quantity: f.rows[0].quantity, useWithin: f.rows[0].use_within };
-      }
-      results.push({ taskId: task.id, foodName: task.food_name, boughtQuantity: qty, unit: task.unit_name, fridge });
+      results.push({ itemId: item.id, foodName: item.food_name, purchasedQuantity: qty, unit: item.unit_name });
     }
-    await db.query('UPDATE shopping_lists SET updated_at = now() WHERE id = $1', [listId]);
-    await audit(db, ctx, 'shopping.purchase', 'shopping_list', listId, { tasks: results.map((r) => r.taskId) });
+    await db.query(
+      'UPDATE shopping_lists SET completed_at = NULL, updated_at = now() WHERE id = $1',
+      [listId],
+    );
+    const pending = (await db.query(
+      `SELECT count(*)::int AS count FROM shopping_items WHERE list_id = $1 AND status = 'pending'`,
+      [listId],
+    )).rows[0].count;
+    if (pending === 0) {
+      await db.query('UPDATE shopping_lists SET completed_at = COALESCE(completed_at, now()) WHERE id = $1', [listId]);
+      const members = await db.query('SELECT user_id FROM group_members WHERE group_id = $1', [groupId]);
+      for (const member of members.rows) {
+        await db.query(
+          `INSERT INTO notifications (user_id, group_id, type, dedupe_key, title, body, data)
+           VALUES ($1, $2, 'purchase_complete', $3, $4, $5, $6)
+           ON CONFLICT (user_id, type, dedupe_key) DO NOTHING`,
+          [member.user_id, groupId, `shopping-list:${listId}`,
+            '🛒 Đơn mua sắm mới đã hoàn tất!',
+            'Bạn vừa hoàn thành một phiên mua sắm mới. Hãy kiểm tra và thêm các sản phẩm vừa mua vào tủ lạnh ngay nhé!',
+            JSON.stringify({ listId, screen: 'shopping_list' })],
+        );
+      }
+    }
+    await audit(db, ctx, 'shopping.purchase', 'shopping_list', listId, { items: results.map((r) => r.itemId) });
 
     const response = { listId, results };
     await db.query('UPDATE idempotency_keys SET response = $3, status_code = 200 WHERE user_id = $1 AND key = $2', [
@@ -464,4 +448,73 @@ export async function confirmPurchase(ctx, body = {}, idempotencyKey) {
 
   if (!out.replayed) triggerExpiryScan(groupId);
   return result('00510', { ...out.response, replayed: out.replayed, list: await loadList(groupId, listId) });
+}
+
+/** POST fridge/from-purchase/ - Nhập từng item đã mua vào tủ lạnh. */
+export async function addPurchasedItems(ctx, body = {}, idempotencyKey) {
+  const key = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
+  ensure(key.length >= 8 && key.length <= 100, '00511');
+  const listId = toId(body.listId);
+  ensure(listId, '00251');
+  const rawItems = maybeJson(body.items);
+  ensure(Array.isArray(rawItems) && rawItems.length > 0 && rawItems.length <= 100, '00513');
+  const groupId = requireMember(ctx, '00096');
+  const items = rawItems.map((it) => {
+    const itemId = toId(it?.itemId);
+    const useWithin = parseUseWithin(it?.useWithin, ctx.timezone);
+    const location = it?.location ?? 'cool';
+    const note = optionalNote(it?.note, 500);
+    ensure(itemId && useWithin && LOCATIONS.includes(location) && note.ok, '00513', { itemId });
+    return { itemId, useWithin, location, note: note.value };
+  });
+  const requestHash = crypto.createHash('sha256').update(JSON.stringify({ listId, items })).digest('hex');
+  const out = await withTx(async (db) => {
+    const claim = await db.query(
+      `INSERT INTO idempotency_keys (user_id, key, endpoint, request_hash)
+       VALUES ($1, $2, 'fridge.from-purchase', $3)
+       ON CONFLICT (user_id, key) DO NOTHING RETURNING key`,
+      [ctx.userId, key, requestHash],
+    );
+    if (!claim.rowCount) {
+      const prev = (await db.query('SELECT * FROM idempotency_keys WHERE user_id = $1 AND key = $2', [ctx.userId, key])).rows[0];
+      ensure(prev?.endpoint === 'fridge.from-purchase' && prev.request_hash === requestHash && prev.response, '00512');
+      return { response: prev.response, replayed: true };
+    }
+    const { rows: dbItems } = await db.query(
+      `SELECT t.*, f.name AS food_name, un.name AS unit_name, sl.completed_at
+       FROM shopping_items t
+       JOIN shopping_lists sl ON sl.id = t.list_id
+       JOIN foods f ON f.id = t.food_id JOIN units un ON un.id = f.unit_id
+       WHERE t.list_id = $1 AND t.group_id = $2 AND t.id = ANY($3::bigint[]) FOR UPDATE OF t`,
+      [listId, groupId, items.map((i) => i.itemId)],
+    );
+    const byId = new Map(dbItems.map((t) => [t.id, t]));
+    const results = [];
+    for (const it of items) {
+      const item = byId.get(it.itemId);
+      ensure(item && item.status === 'bought', '00514', { itemId: it.itemId });
+      const inserted = await db.query(
+        `INSERT INTO fridge_items (
+           group_id, food_id, shopping_item_id, batch_code, quantity, use_within, location, note, purchased_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, quantity, use_within`,
+        [groupId, item.food_id, item.id, `shopping-list:${listId}`, item.purchased_quantity ?? item.quantity,
+          it.useWithin, it.location, it.note, item.purchased_at ?? item.completed_at],
+      );
+      await db.query(`UPDATE shopping_items SET status = 'in_fridge' WHERE id = $1`, [item.id]);
+      await recordStockEvent(db, {
+        groupId, food: item, type: 'add', quantity: item.purchased_quantity ?? item.quantity,
+        actorUserId: ctx.userId, shoppingItemId: item.id, note: it.note,
+      });
+      results.push({ itemId: item.id, fridgeItemId: inserted.rows[0].id, foodName: item.food_name,
+        quantity: inserted.rows[0].quantity, useWithin: inserted.rows[0].use_within, unit: item.unit_name });
+    }
+    const response = { listId, results };
+    await db.query('UPDATE idempotency_keys SET response = $3, status_code = 200 WHERE user_id = $1 AND key = $2',
+      [ctx.userId, key, JSON.stringify(response)]);
+    return { response, replayed: false };
+  });
+  if (!out.replayed) triggerExpiryScan(groupId);
+  return result('00202', { ...out.response, replayed: out.replayed, list: await loadList(groupId, listId) });
 }

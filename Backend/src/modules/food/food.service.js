@@ -11,7 +11,7 @@ const findCatalog = async (table, name) =>
 
 /** GET food/?q&categoryId&page&limit - Danh sách thực phẩm của nhóm (tìm kiếm, lọc danh mục). */
 export async function listFoods(ctx, q = {}) {
-  const groupId = requireMember(ctx, '00185');
+  const groupId = requireMember(ctx, '00096');
   const p = parsePage(q, { defaultLimit: 50 });
   const params = [groupId];
   const where = ['f.group_id = $1'];
@@ -26,22 +26,22 @@ export async function listFoods(ctx, q = {}) {
   const w = where.join(' AND ');
   const total = (await query(`SELECT count(*)::int AS n FROM foods f WHERE ${w}`, params)).rows[0].n;
   const { rows } = await query(`${FOOD_SELECT} WHERE ${w} ORDER BY f.name LIMIT ${p.limit} OFFSET ${p.offset}`, params);
-  return result('00188', { foods: rows.map(toFoodDto), ...pageMeta(p, total) });
+  return result('00146', { foods: rows.map(toFoodDto), ...pageMeta(p, total) });
 }
 
 /** POST food/ (multipart) - Thành viên nhóm tạo thực phẩm. */
 export async function createFood(ctx, body = {}, file = null, imageUrl = null) {
   try {
-    ensure(isPresent(body.name) || isPresent(body.foodCategoryName) || isPresent(body.unitName), '00147');
+    ensure(isPresent(body.name) || isPresent(body.foodCategoryName) || isPresent(body.unitName), '00005');
     const name = cleanString(body.name, { min: 1, max: 150 });
     ensure(name, '00148');
     ensure(isPresent(body.foodCategoryName), '00149');
     ensure(isPresent(body.unitName), '00150');
-    const groupId = requireMember(ctx, '00156x');
+    const groupId = requireMember(ctx, '00096');
     const unit = await findCatalog('units', body.unitName);
-    ensure(unit, '00153');
+    ensure(unit, '00119');
     const category = await findCatalog('categories', body.foodCategoryName);
-    ensure(category, '00155');
+    ensure(category, '00138');
 
     const id = await withTx(async (db) => {
       const { rows } = await db.query(
@@ -63,22 +63,22 @@ export async function createFood(ctx, body = {}, file = null, imageUrl = null) {
 /** PUT food/ (multipart) - Trưởng nhóm sửa tên/danh mục/đơn vị/ảnh. */
 export async function updateFood(ctx, body = {}, file = null, imageUrl = null) {
   try {
-    ensure(isPresent(body.name), '00161');
+    ensure(isPresent(body.name), '00005');
     const name = cleanString(body.name, { min: 1, max: 150 });
-    ensure(name, '00162');
+    ensure(name, '00148');
     ensure(isPresent(body.newName) || isPresent(body.newCategory) || isPresent(body.newUnit) || file, '00163');
     let newName = null;
     if (isPresent(body.newName)) {
       newName = cleanString(body.newName, { min: 1, max: 150 });
-      ensure(newName, '00166');
+      ensure(newName, '00148');
     }
-    if (body.newCategory !== undefined && body.newCategory !== '') ensure(cleanString(body.newCategory, { max: 100 }), '00164');
-    if (body.newUnit !== undefined && body.newUnit !== '') ensure(cleanString(body.newUnit, { max: 100 }), '00165');
+    if (body.newCategory !== undefined && body.newCategory !== '') ensure(cleanString(body.newCategory, { max: 100 }), '00149');
+    if (body.newUnit !== undefined && body.newUnit !== '') ensure(cleanString(body.newUnit, { max: 100 }), '00150');
 
-    const groupId = requireMember(ctx, '00185');
+    const groupId = requireMember(ctx, '00096');
     const food = await findFoodByName(null, groupId, name);
     ensure(food, '00167');
-    if (ctx.groupRole !== 'admin') throw new AppError('00167x');
+    if (ctx.groupRole !== 'admin') throw new AppError('00104');
 
     const sets = [];
     const params = [food.id];
@@ -89,12 +89,12 @@ export async function updateFood(ctx, body = {}, file = null, imageUrl = null) {
     if (newName) push('name', newName);
     if (isPresent(body.newUnit)) {
       const unit = await findCatalog('units', body.newUnit);
-      ensure(unit, '00169');
+      ensure(unit, '00119');
       push('unit_id', unit.id);
     }
     if (isPresent(body.newCategory)) {
       const category = await findCatalog('categories', body.newCategory);
-      ensure(category, '00171');
+      ensure(category, '00138');
       push('category_id', category.id);
     }
     if (file) push('image_url', imageUrl);
@@ -105,24 +105,24 @@ export async function updateFood(ctx, body = {}, file = null, imageUrl = null) {
     });
     if (file && food.image_url) removeByUrl(food.image_url);
     const updated = (await query(`${FOOD_SELECT} WHERE f.id = $1`, [food.id])).rows[0];
-    return result('00178', { food: toFoodDto(updated) });
+    return result('00168', { food: toFoodDto(updated) });
   } catch (err) {
     removeUploaded(file);
-    if (err.code === '23505') throw new AppError('00173');
+    if (err.code === '23505') throw new AppError('00151');
     throw err;
   }
 }
 
 /** DELETE food/ {name} - Trưởng nhóm xóa thực phẩm (xóa kèm mục tủ lạnh, nhiệm vụ, kế hoạch, công thức liên quan). */
 export async function deleteFood(ctx, body = {}) {
-  ensure(isPresent(body.name), '00179');
-  const groupId = requireLeader(ctx, '00185', '00181');
+  ensure(isPresent(body.name), '00147');
+  const groupId = requireLeader(ctx, '00096', '00104');
   const food = await findFoodByName(null, groupId, body.name);
-  ensure(food, '00180');
+  ensure(food, '00167');
   await withTx(async (db) => {
     await db.query('DELETE FROM foods WHERE id = $1 AND group_id = $2', [food.id, groupId]);
     await audit(db, ctx, 'food.delete', 'food', food.id, { name: food.name });
   });
   removeByUrl(food.image_url);
-  return result('00184');
+  return result('00169');
 }

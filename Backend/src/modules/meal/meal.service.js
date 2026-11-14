@@ -53,16 +53,16 @@ const getPlan = async (groupId, id, tz) => {
 
 /** POST meal/ {foodName, timestamp, name, recipeId?} - Trưởng nhóm lập kế hoạch. */
 export async function createPlan(ctx, body = {}) {
-  ensure(['foodName', 'timestamp', 'name', 'recipeId'].some((k) => isPresent(body[k])), '00313');
+  ensure(['foodName', 'timestamp', 'name', 'recipeId'].some((k) => isPresent(body[k])), '00005');
   const hasRecipe = isPresent(body.recipeId);
-  if (!hasRecipe || isPresent(body.foodName)) ensure(cleanString(body.foodName, { max: 150 }), '00314');
+  if (!hasRecipe || isPresent(body.foodName)) ensure(cleanString(body.foodName, { max: 150 }), '00147');
   const meal = mealName(body.name);
   ensure(meal, '00316');
   const plannedAt = parsePlannedAt(body.timestamp, meal, ctx.timezone);
   ensure(plannedAt, '00315');
   const recipeId = hasRecipe ? toId(body.recipeId) : null;
   if (hasRecipe) ensure(recipeId, '00538');
-  const groupId = requireLeader(ctx, '00345', '00319');
+  const groupId = requireLeader(ctx, '00096', '00104');
 
   const id = await withTx(async (db) => {
     let foodId = null;
@@ -73,7 +73,7 @@ export async function createPlan(ctx, body = {}) {
     }
     if (isPresent(body.foodName)) {
       const food = await findFoodByName(db, groupId, body.foodName);
-      ensure(food, '00317');
+      ensure(food, '00167');
       foodId = food.id;
     }
     const { rows } = await db.query(
@@ -89,21 +89,21 @@ export async function createPlan(ctx, body = {}) {
 
 /** PUT meal/ {planId, newFoodName?, newTimestamp?, newName?, newRecipeId?} */
 export async function updatePlan(ctx, body = {}) {
-  ensure(body && Object.keys(body).length, '00331');
+  ensure(body && Object.keys(body).length, '00005');
   const planId = toId(body.planId);
-  ensure(planId, '00332');
-  ensure(['newFoodName', 'newTimestamp', 'newName', 'newRecipeId'].some((k) => body[k] !== undefined), '00333');
-  if (body.newFoodName !== undefined) ensure(cleanString(body.newFoodName, { max: 150 }), '00334');
+  ensure(planId, '00324');
+  ensure(['newFoodName', 'newTimestamp', 'newName', 'newRecipeId'].some((k) => body[k] !== undefined), '00163');
+  if (body.newFoodName !== undefined) ensure(cleanString(body.newFoodName, { max: 150 }), '00147');
   let newMeal = null;
   if (body.newName !== undefined) {
     newMeal = mealName(body.newName);
-    ensure(newMeal, '00336');
+    ensure(newMeal, '00315');
   }
-  const groupId = requireLeader(ctx, '00345', '00339');
+  const groupId = requireLeader(ctx, '00096', '00104');
 
   await withTx(async (db) => {
     const plan = (await db.query('SELECT * FROM meal_plans WHERE id = $1 AND group_id = $2 FOR UPDATE', [planId, groupId])).rows[0];
-    ensure(plan, '00337');
+    ensure(plan, '00325');
     const sets = [];
     const params = [planId];
     const push = (col, v) => {
@@ -114,7 +114,7 @@ export async function updatePlan(ctx, body = {}) {
     if (newMeal) push('meal_name', newMeal);
     if (body.newTimestamp !== undefined) {
       const at = parsePlannedAt(body.newTimestamp, meal, ctx.timezone);
-      ensure(at, '00335');
+      ensure(at, '00315');
       push('planned_at', at);
     }
     if (body.newRecipeId !== undefined) {
@@ -130,7 +130,7 @@ export async function updatePlan(ctx, body = {}) {
     }
     if (body.newFoodName !== undefined) {
       const food = await findFoodByName(db, groupId, body.newFoodName);
-      ensure(food, '00341');
+      ensure(food, '00167');
       push('food_id', food.id);
     }
     await db.query(`UPDATE meal_plans SET ${sets.join(', ')} WHERE id = $1`, params);
@@ -141,10 +141,10 @@ export async function updatePlan(ctx, body = {}) {
 
 /** DELETE meal/ {planId} */
 export async function deletePlan(ctx, body = {}) {
-  ensure(body && Object.keys(body).length, '00323');
+  ensure(body && Object.keys(body).length, '00005');
   const planId = toId(body.planId);
   ensure(planId, '00324');
-  const groupId = requireLeader(ctx, '00345', '00327');
+  const groupId = requireLeader(ctx, '00096', '00104');
   await withTx(async (db) => {
     const del = await db.query('DELETE FROM meal_plans WHERE id = $1 AND group_id = $2', [planId, groupId]);
     ensure(del.rowCount, '00325');
@@ -179,7 +179,7 @@ async function plansInRange(groupId, from, to, tz) {
 
 /** GET meal/?date=YYYY-MM-DD hoặc ?from&to - Thành viên xem lịch ngày/tuần. */
 export async function listPlans(ctx, q = {}) {
-  const groupId = requireMember(ctx, '00345');
+  const groupId = requireMember(ctx, '00096');
   const [from, to] = resolveRange(q, ctx.timezone);
   const rows = await plansInRange(groupId, from, to, ctx.timezone);
   return result('00348', { from, to, plans: rows.map((r) => toPlanDto(r, ctx.timezone)) });
@@ -215,7 +215,7 @@ async function selectPlans(ctx, groupId, src) {
 
 /** GET meal/ingredients/?planId | ?date | ?from&to - Nguyên liệu cần, đang có và còn thiếu (UC08 bước 3). */
 export async function checkIngredients(ctx, q = {}) {
-  const groupId = requireMember(ctx, '00345');
+  const groupId = requireMember(ctx, '00096');
   const plans = await selectPlans(ctx, groupId, q);
   const { ingredients, missing } = await analyse(groupId, plans);
   return result('00535', { plans: plans.map((p) => toPlanDto(p, ctx.timezone)), ingredients, missing });
@@ -223,10 +223,10 @@ export async function checkIngredients(ctx, q = {}) {
 
 /**
  * POST meal/missing-to-shopping/ - Thao tác tùy chọn riêng (extend), không tự chạy khi lưu kế hoạch.
- * body: {planIds? | planId? | date? | from&to?, listId? | newListName?, newListDate?, assignToUsername?}
+ * body: {planIds? | planId? | date? | from&to?, listId? | newListName?, assignToUsername?}
  */
 export async function addMissingToShopping(ctx, body = {}) {
-  const groupId = requireLeader(ctx, '00345', '00319');
+  const groupId = requireLeader(ctx, '00096', '00104');
   const plans = await selectPlans(ctx, groupId, body);
   const { missing } = await analyse(groupId, plans);
   if (!missing.length) return result('00537', { added: [], updated: [] });
@@ -235,42 +235,44 @@ export async function addMissingToShopping(ctx, body = {}) {
     let id;
     if (isPresent(body.listId)) {
       id = toId(body.listId);
-      ensure(id, '00277');
+      ensure(id, '00251');
       const l = await db.query('SELECT id FROM shopping_lists WHERE id = $1 AND group_id = $2 FOR UPDATE', [id, groupId]);
-      ensure(l.rowCount, '00283');
+      ensure(l.rowCount, '00260');
     } else {
       const firstDate = plans.length ? localDate(new Date(plans[0].planned_at), ctx.timezone) : localDate(new Date(), ctx.timezone);
-      const date = isPresent(body.newListDate) ? isoDate(body.newListDate) : firstDate;
-      ensure(date, '00242');
+      const date = firstDate;
       const name = isPresent(body.newListName)
         ? cleanString(body.newListName, { min: 1, max: 150 })
         : `Nguyên liệu bữa ăn ${date.split('-').reverse().join('/')}`;
-      ensure(name, '00239');
+      ensure(name, '00147');
       let assignee = null;
       if (isPresent(body.assignToUsername)) {
         const u = (await db.query('SELECT id FROM users WHERE username = $1', [String(body.assignToUsername).trim()])).rows[0];
-        ensure(u, '00245');
+        ensure(u, '00007');
         const m = await db.query('SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, u.id]);
-        ensure(m.rowCount, '00246');
+        ensure(m.rowCount, '00104');
         assignee = u.id;
       }
       const ins = await db.query(
-        `INSERT INTO shopping_lists (group_id, assigned_user_id, name, note, shopping_date, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [groupId, assignee, name, 'Tạo từ kế hoạch bữa ăn', date, ctx.userId],
+        `INSERT INTO shopping_lists (group_id, assigned_user_id, name, note, created_by)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [groupId, assignee, name, 'Tạo từ kế hoạch bữa ăn', ctx.userId],
       );
       id = ins.rows[0].id;
     }
     for (const m of missing) {
       // Đã có nhiệm vụ chưa mua cho thực phẩm này => cộng thêm phần thiếu
       await db.query(
-        `INSERT INTO shopping_tasks (list_id, group_id, food_id, quantity) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (list_id, food_id) DO UPDATE SET quantity = shopping_tasks.quantity + EXCLUDED.quantity
-         WHERE shopping_tasks.status = 'pending'`,
+        `INSERT INTO shopping_items (list_id, group_id, food_id, quantity) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (list_id, food_id) DO UPDATE SET quantity = shopping_items.quantity + EXCLUDED.quantity
+         WHERE shopping_items.status = 'pending'`,
         [id, groupId, m.food.id, m.missingQuantity],
       );
     }
-    await db.query('UPDATE shopping_lists SET updated_at = now() WHERE id = $1', [id]);
+    await db.query(
+      'UPDATE shopping_lists SET completed_at = NULL, updated_at = now() WHERE id = $1',
+      [id],
+    );
     await audit(db, ctx, 'meal.missing_to_shopping', 'shopping_list', id, { foods: missing.map((m) => m.food.name) });
     return id;
   });

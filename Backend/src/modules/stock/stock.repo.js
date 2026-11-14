@@ -4,10 +4,10 @@
  *
  * food: bản ghi có food_id|id, food_name|name, unit_name, category_name
  */
-export async function recordStockEvent(db, { groupId, food, type, quantity, actorUserId, shoppingTaskId = null, note = null }) {
+export async function recordStockEvent(db, { groupId, food, type, quantity, actorUserId, shoppingItemId = null, note = null }) {
   await db.query(
     `INSERT INTO stock_events (group_id, food_id, food_name, unit_name, category_name, type, quantity,
-                               actor_user_id, shopping_task_id, note)
+                               actor_user_id, shopping_item_id, note)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       groupId,
@@ -18,7 +18,7 @@ export async function recordStockEvent(db, { groupId, food, type, quantity, acto
       type,
       quantity,
       actorUserId ?? null,
-      shoppingTaskId,
+      shoppingItemId,
       note,
     ],
   );

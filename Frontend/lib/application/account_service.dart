@@ -12,17 +12,58 @@ class AccountService {
   final GroupRepository _groups;
   final SessionService _session;
 
-  Future<String> register(String email, String password, String name) => _auth.register(email: email.trim(), password: password, name: name.trim());
-  Future<String?> resendCode(String email) => _auth.sendVerificationCode(email.trim());
-  Future<String> verify(String code, String confirmToken) => _auth.verifyEmail(code.trim(), confirmToken);
+  // Đăng ký
+  Future<String> register(
+    String email,
+    String username,
+    String password,
+    String name,
+  ) => _auth.register(
+    email: email.trim(),
+    username: username.trim(),
+    password: password,
+    name: name.trim(),
+  );
+  Future<String?> sendVerificationCode(String email) =>
+      _auth.sendVerificationCode(email.trim());
+  Future<String> verify(String code, String confirmToken) =>
+      _auth.verifyEmail(code.trim(), confirmToken);
 
-  Future<User> updateProfile({String? name, String? username, String? language, String? timezone, File? image}) async {
-    final u = await _auth.updateProfile(name: name, username: username, language: language, timezone: timezone, image: image);
+  // Quên mật khẩu
+  Future<String> sendPasswordResetCode(String email) =>
+      _auth.sendPasswordResetCode(email.trim());
+  Future<String> verifyPasswordResetCode(String code, String resetToken) =>
+      _auth.verifyPasswordResetCode(code.trim(), resetToken);
+  Future<String> resetPassword({
+    required String email,
+    required String token,
+    required String newPassword,
+  }) => _auth.resetPassword(
+    email: email.trim(),
+    token: token,
+    newPassword: newPassword,
+  );
+
+  Future<User> updateProfile({
+    String? name,
+    String? username,
+    String? language,
+    String? timezone,
+    File? image,
+  }) async {
+    final u = await _auth.updateProfile(
+      name: name,
+      username: username,
+      language: language,
+      timezone: timezone,
+      image: image,
+    );
     _session.updateUser(u);
     return u;
   }
 
-  Future<String> changePassword(String oldPassword, String newPassword) => _auth.changePassword(oldPassword, newPassword);
+  Future<String> changePassword(String oldPassword, String newPassword) =>
+      _auth.changePassword(oldPassword, newPassword);
 
   Future<void> deleteAccount() async {
     await _auth.deleteAccount();
@@ -33,13 +74,16 @@ class AccountService {
   Future<Group> group() => _groups.get();
 
   Future<Group> createGroup(String? name) async {
-    final g = await _groups.create(name?.trim().isEmpty ?? true ? null : name!.trim());
+    final g = await _groups.create(
+      name?.trim().isEmpty ?? true ? null : name!.trim(),
+    );
     await _session.refreshProfile();
     return g;
   }
 
   Future<Group> renameGroup(String name) => _groups.rename(name.trim());
-  Future<Group> addMember(String username) => _groups.addMember(username.trim());
+  Future<Group> addMember(String username) =>
+      _groups.addMember(username.trim());
   Future<Group> removeMember(String username) => _groups.removeMember(username);
 
   Future<Group> transferLeader(String username) async {

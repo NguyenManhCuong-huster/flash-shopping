@@ -33,8 +33,8 @@ class FoodRepository {
   Future<void> deleteFood(String name) => _api.delete('/food', data: {'name': name});
 
   // ---------- Tủ lạnh ----------
-  Future<FridgeResult> fridge({String? q, String? location, int? expiringDays, int page = 1}) async {
-    final r = await _api.get('/fridge', query: {'q': q, 'location': location, 'expiringDays': expiringDays, 'page': page, 'limit': 50});
+  Future<FridgeResult> fridge({String? query, String? location, int? expiringDays, int page = 1}) async {
+    final r = await _api.get('/fridge', query: {'query': query, 'location': location, 'expiringDays': expiringDays, 'page': page, 'limit': 50});
     final d = r.map;
     return FridgeResult(
       asList(d['items']).map(FridgeItem.fromJson).toList(),

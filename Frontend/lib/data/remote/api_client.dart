@@ -117,7 +117,7 @@ class ApiClient {
     final message = body['message']?.toString() ?? 'Lỗi không xác định (${res.statusCode})';
     final status = res.statusCode ?? 0;
 
-    if (status == 401 && retry && token != null && (code == '00011' || code == '00012')) {
+    if (status == 401 && retry && token != null && (code == '00011' || code == '00011')) {
       if (await _refresh()) {
         return _request(method, path, data: data, query: query, headers: headers, retry: false);
       }

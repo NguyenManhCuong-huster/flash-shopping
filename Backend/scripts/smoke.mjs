@@ -80,10 +80,10 @@ async function main() {
   const A = { token: loginA.data.accessToken, refresh: loginA.data.refreshToken, username: `lead${sfx}` };
   expect('Đặt username', await call('PUT', '/user', { token: A.token, body: { username: A.username } }), '00086');
   expect('Không có token', await call('GET', '/user'), '00006');
-  expect('Token giả', await call('GET', '/user', { token: 'abc.def.ghi' }), '00012');
+  expect('Token giả', await call('GET', '/user', { token: 'abc.def.ghi' }), '00011');
   const ref = expect('Làm mới token', await call('POST', '/user/refresh-token', { body: { refreshToken: A.refresh } }), '00065');
-  expect('Dùng lại refresh token cũ (phát hiện tái sử dụng)', await call('POST', '/user/refresh-token', { body: { refreshToken: A.refresh } }), '00061');
-  expect('Access token cũ bị thu hồi theo phiên', await call('GET', '/user', { token: A.token }), '00012');
+  expect('Dùng lại refresh token cũ (phát hiện tái sử dụng)', await call('POST', '/user/refresh-token', { body: { refreshToken: A.refresh } }), '00011');
+  expect('Access token cũ bị thu hồi theo phiên', await call('GET', '/user', { token: A.token }), '00011');
   const relogin = await call('POST', '/user/login', { body: { email: emailA, password: 'secret123' } });
   A.token = relogin.data.accessToken;
   expect('Đổi mật khẩu sai mật khẩu cũ', await call('POST', '/user/change-password', { token: A.token, body: { oldPassword: 'nopenope', newPassword: 'secret456' } }), '00072');
@@ -98,10 +98,10 @@ async function main() {
   expect('A tạo nhóm lần 2', await call('POST', '/user/group', { token: A.token }), '00093');
   expect('A thêm B', await call('POST', '/user/group/add', { token: A.token, body: { username: B.username } }), '00102');
   expect('A thêm lại B', await call('POST', '/user/group/add', { token: A.token, body: { username: B.username } }), '00099');
-  expect('A thêm user không tồn tại', await call('POST', '/user/group/add', { token: A.token, body: { username: 'khongtontai' } }), '00099x');
-  expect('B (thành viên) thêm C', await call('POST', '/user/group/add', { token: B.token, body: { username: C.username } }), '00506');
+  expect('A thêm user không tồn tại', await call('POST', '/user/group/add', { token: A.token, body: { username: 'khongtontai' } }), '00007');
+  expect('B (thành viên) thêm C', await call('POST', '/user/group/add', { token: B.token, body: { username: C.username } }), '00104');
   expect('B xóa thành viên', await call('DELETE', '/user/group', { token: B.token, body: { username: A.username } }), '00104');
-  expect('B xem nhóm', await call('GET', '/user/group', { token: B.token }), '00098', (d) => d.group.members.length === 2 && d.myRole === 'member');
+  expect('B xem nhóm', await call('GET', '/user/group', { token: B.token }), '00097', (d) => d.group.members.length === 2 && d.myRole === 'member');
   expect('C tạo nhóm riêng', await call('POST', '/user/group', { token: C.token }), '00095');
   expect('A rời nhóm khi còn thành viên', await call('POST', '/user/group/leave', { token: A.token }), '00501');
 
@@ -112,7 +112,7 @@ async function main() {
   expect('Admin tạo category', await call('POST', '/admin/category', { token: AD, body: { name: `Test ${sfx}` } }), '00135');
   expect('Admin tạo category trùng', await call('POST', '/admin/category', { token: AD, body: { name: `test ${sfx}` } }), '00132');
   expect('Admin đổi tên category', await call('PUT', '/admin/category', { token: AD, body: { oldName: `Test ${sfx}`, newName: `Test2 ${sfx}` } }), '00141');
-  expect('Admin xóa category', await call('DELETE', '/admin/category', { token: AD, body: { name: `Test2 ${sfx}` } }), '00146');
+  expect('Admin xóa category', await call('DELETE', '/admin/category', { token: AD, body: { name: `Test2 ${sfx}` } }), '00144');
   expect('Admin xem log', await call('GET', '/admin/logs?limit=5', { token: AD }), '00109', (d) => d.logs.length > 0);
 
   section('Thực phẩm');
@@ -121,11 +121,11 @@ async function main() {
     expect(`A tạo ${name}`, await call('POST', '/food', { token: A.token, body: { name, foodCategoryName: cat, unitName: unit } }), '00160');
   }
   expect('Tạo trùng tên (không phân biệt hoa thường)', await call('POST', '/food', { token: A.token, body: { name: 'thịt bò', foodCategoryName: 'Thịt', unitName: 'kg' } }), '00151');
-  expect('Danh mục không tồn tại', await call('POST', '/food', { token: A.token, body: { name: 'X', foodCategoryName: 'Không có', unitName: 'kg' } }), '00155');
+  expect('Danh mục không tồn tại', await call('POST', '/food', { token: A.token, body: { name: 'X', foodCategoryName: 'Không có', unitName: 'kg' } }), '00138');
   expect('B (thành viên) tạo thực phẩm', await call('POST', '/food', { token: B.token, body: { name: 'Trứng gà', foodCategoryName: 'Trứng & sữa', unitName: 'quả' } }), '00160');
-  expect('B sửa thực phẩm (chỉ trưởng nhóm)', await call('PUT', '/food', { token: B.token, body: { name: 'Trứng gà', newName: 'Trứng' } }), '00167x');
-  expect('Danh sách thực phẩm nhóm A', await call('GET', '/food', { token: B.token }), '00188', (d) => d.total === 5);
-  expect('C không thấy thực phẩm nhóm A', await call('GET', '/food', { token: C.token }), '00188', (d) => d.total === 0);
+  expect('B sửa thực phẩm (chỉ trưởng nhóm)', await call('PUT', '/food', { token: B.token, body: { name: 'Trứng gà', newName: 'Trứng' } }), '00104');
+  expect('Danh sách thực phẩm nhóm A', await call('GET', '/food', { token: B.token }), '00146', (d) => d.total === 5);
+  expect('C không thấy thực phẩm nhóm A', await call('GET', '/food', { token: C.token }), '00146', (d) => d.total === 0);
   expect('Admin xóa đơn vị đang được dùng', await call('DELETE', '/admin/unit', { token: AD, body: { unitName: 'kg' } }), '00564');
   expect('C tạo "Thịt bò" trong nhóm riêng', await call('POST', '/food', { token: C.token, body: { name: 'Thịt bò', foodCategoryName: 'Thịt', unitName: 'kg' } }), '00160');
 
@@ -134,9 +134,9 @@ async function main() {
   const itemId = fi.data.item.id;
   expect('Thêm trùng thực phẩm', await call('POST', '/fridge', { token: B.token, body: { foodName: 'Thịt bò', quantity: 1, useWithin: '5' } }), '00199');
   expect('Hạn dùng sai định dạng', await call('POST', '/fridge', { token: B.token, body: { foodName: 'Cà rốt', quantity: 1, useWithin: '2026-13-45' } }), '00191');
-  expect('C xem thịt bò (nhóm C chưa có mục)', await call('GET', `/fridge/${encodeURIComponent('Thịt bò')}`, { token: C.token }), '00234');
+  expect('C xem thịt bò (nhóm C chưa có mục)', await call('GET', `/fridge/${encodeURIComponent('Thịt bò')}`, { token: C.token }), '00221');
   expect('C tiêu thụ mục của nhóm A (cách ly)', await call('POST', '/fridge/consume', { token: C.token, body: { itemId, quantity: 0.1 } }), '00213');
-  expect('C xem mục theo id của nhóm A', await call('GET', `/fridge/item/${itemId}`, { token: C.token }), '00234');
+  expect('C xem mục theo id của nhóm A', await call('GET', `/fridge/item/${itemId}`, { token: C.token }), '00221');
   expect('Tiêu thụ 0.3', await call('POST', '/fridge/consume', { token: B.token, body: { itemId, quantity: 0.3, version: 1 } }), '00520', (d) => d.remaining === 0.7);
   expect('Version cũ => yêu cầu tải lại', await call('POST', '/fridge/consume', { token: A.token, body: { itemId, quantity: 0.1, version: 1 } }), '00523');
   expect('Tiêu thụ vượt tồn', await call('POST', '/fridge/consume', { token: A.token, body: { itemId, quantity: 5 } }), '00522');
@@ -146,40 +146,40 @@ async function main() {
 
   section('UC03 Danh sách mua sắm');
   const today = new Date().toISOString().slice(0, 10);
-  expect('B tạo danh sách (không phải trưởng nhóm)', await call('POST', '/shopping', { token: B.token, body: { name: 'Đi chợ', date: today } }), '00243');
-  expect('Giao cho người nhóm khác', await call('POST', '/shopping', { token: A.token, body: { name: 'Đi chợ', date: today, assignToUsername: C.username } }), '00246');
-  expect('Ngày sai', await call('POST', '/shopping', { token: A.token, body: { name: 'Đi chợ', date: '2026-02-30' } }), '00242');
-  const sl = expect('A tạo danh sách giao cho B', await call('POST', '/shopping', { token: A.token, body: { name: 'Đi chợ sáng', date: today, assignToUsername: B.username } }), '00249');
+  expect('B tạo danh sách (không phải trưởng nhóm)', await call('POST', '/shopping', { token: B.token, body: { name: 'Đi chợ' } }), '00104');
+  expect('Giao cho người nhóm khác', await call('POST', '/shopping', { token: A.token, body: { name: 'Đi chợ', date: today, assignToUsername: C.username } }), '00104');
+  expect('Tên danh sách sai', await call('POST', '/shopping', { token: A.token, body: { name: '' } }), '00239');
+  const sl = expect('A tạo danh sách giao cho B', await call('POST', '/shopping', { token: A.token, body: { name: 'Đi chợ sáng', assignToUsername: B.username } }), '00249');
   const listId = sl.data.listId;
   const tk = expect(
     'Thêm mục: 1 hợp lệ, 1 không tồn tại, 1 trùng',
-    await call('POST', '/shopping/task', {
+    await call('POST', '/shopping/item', {
       token: A.token,
-      body: { listId, tasks: [{ foodName: 'Cà rốt', quantity: 3 }, { foodName: 'Không tồn tại', quantity: 1 }, { foodName: 'cà rốt', quantity: 1 }, { foodName: 'Cà chua', quantity: 0.5 }] },
+      body: { listId, items: [{ foodName: 'Cà rốt', quantity: 3 }, { foodName: 'Không tồn tại', quantity: 1 }, { foodName: 'cà rốt', quantity: 1 }, { foodName: 'Cà chua', quantity: 0.5 }] },
     }),
     '00507',
-    (d) => d.created.length === 2 && d.failed.length === 2 && d.failed.some((f) => f.code === '00285x'),
+    (d) => d.created.length === 2 && d.failed.length === 2 && d.failed.some((f) => f.code === '00151'),
   );
-  const carrotTask = tk.data.created.find((t) => t.foodName === 'Cà rốt').taskId;
-  const tomatoTask = tk.data.created.find((t) => t.foodName === 'Cà chua').taskId;
-  expect('B thêm mục (không phải trưởng nhóm)', await call('POST', '/shopping/task', { token: B.token, body: { listId, tasks: [{ foodName: 'Hành lá', quantity: 1 }] } }), '00281');
+  const carrotTask = tk.data.created.find((t) => t.foodName === 'Cà rốt').itemId;
+  const tomatoTask = tk.data.created.find((t) => t.foodName === 'Cà chua').itemId;
+  expect('B thêm mục (không phải trưởng nhóm)', await call('POST', '/shopping/item', { token: B.token, body: { listId, items: [{ foodName: 'Hành lá', quantity: 1 }] } }), '00104');
   expect('C xem danh sách nhóm A', await call('GET', `/shopping/${listId}`, { token: C.token }), '00260');
-  expect('C không thấy list nhóm A', await call('GET', '/shopping/task', { token: C.token }), '00292', (d) => d.total === 0);
-  expect('B xem danh sách được giao', await call('GET', '/shopping/task?assignedToMe=true', { token: B.token }), '00292', (d) => d.total === 1);
+  expect('C không thấy list nhóm A', await call('GET', '/shopping/item', { token: C.token }), '00292', (d) => d.total === 0);
+  expect('B xem danh sách được giao', await call('GET', '/shopping/item?assignedToMe=true', { token: B.token }), '00292', (d) => d.total === 1);
 
   section('UC04 Xác nhận mua (giao dịch + khóa chống lặp)');
   const key = `k-${sfx}-0001`;
-  const purchaseBody = { listId, items: [{ taskId: carrotTask, boughtQuantity: 2.5, useWithin: '7', location: 'cool' }] };
+  const purchaseBody = { listId, items: [{ itemId: carrotTask, purchasedQuantity: 2.5, useWithin: '7', location: 'cool' }] };
   expect('Thiếu Idempotency-Key', await call('POST', '/shopping/purchase', { token: B.token, body: purchaseBody }), '00511');
-  expect('C xác nhận list nhóm A', await call('POST', '/shopping/purchase', { token: C.token, body: purchaseBody, headers: { 'Idempotency-Key': `c-${key}` } }), '00283');
+  expect('C xác nhận list nhóm A', await call('POST', '/shopping/purchase', { token: C.token, body: purchaseBody, headers: { 'Idempotency-Key': `c-${key}` } }), '00260');
   expect('B xác nhận mua cà rốt', await call('POST', '/shopping/purchase', { token: B.token, body: purchaseBody, headers: { 'Idempotency-Key': key } }), '00510', (d) => d.replayed === false && d.results[0].fridge.quantity === 2.5);
   expect('Gửi lại cùng khóa => trả kết quả cũ', await call('POST', '/shopping/purchase', { token: B.token, body: purchaseBody, headers: { 'Idempotency-Key': key } }), '00510', (d) => d.replayed === true);
-  expect('Cùng khóa, nội dung khác', await call('POST', '/shopping/purchase', { token: B.token, body: { ...purchaseBody, items: [{ ...purchaseBody.items[0], boughtQuantity: 9 }] }, headers: { 'Idempotency-Key': key } }), '00512');
+  expect('Cùng khóa, nội dung khác', await call('POST', '/shopping/purchase', { token: B.token, body: { ...purchaseBody, items: [{ ...purchaseBody.items[0], purchasedQuantity: 9 }] }, headers: { 'Idempotency-Key': key } }), '00512');
   expect('Khóa mới, nhiệm vụ đã mua', await call('POST', '/shopping/purchase', { token: B.token, body: purchaseBody, headers: { 'Idempotency-Key': `${key}-x` } }), '00514');
   expect('Tồn cà rốt chỉ cộng 1 lần', await call('GET', `/fridge/${encodeURIComponent('Cà rốt')}`, { token: B.token }), '00237', (d) => d.item.quantity === 2.5);
   // Hai yêu cầu song song cùng khóa: chỉ một lần cộng tồn
   const key2 = `k-${sfx}-0002`;
-  const body2 = { listId, items: [{ taskId: tomatoTask, useWithin: '2', location: 'cool' }] };
+  const body2 = { listId, items: [{ itemId: tomatoTask, useWithin: '2', location: 'cool' }] };
   const [p1, p2] = await Promise.all([
     call('POST', '/shopping/purchase', { token: A.token, body: body2, headers: { 'Idempotency-Key': key2 } }),
     call('POST', '/shopping/purchase', { token: A.token, body: body2, headers: { 'Idempotency-Key': key2 } }),
@@ -213,18 +213,18 @@ async function main() {
 
   section('UC08 Kế hoạch bữa ăn');
   const tomorrow = new Date(Date.now() + 86400_000).toISOString().slice(0, 10);
-  expect('B lập kế hoạch (không phải trưởng nhóm)', await call('POST', '/meal', { token: B.token, body: { foodName: 'Thịt bò', timestamp: tomorrow, name: 'tối' } }), '00319');
+  expect('B lập kế hoạch (không phải trưởng nhóm)', await call('POST', '/meal', { token: B.token, body: { foodName: 'Thịt bò', timestamp: tomorrow, name: 'tối' } }), '00104');
   expect('Bữa không hợp lệ', await call('POST', '/meal', { token: A.token, body: { foodName: 'Thịt bò', timestamp: tomorrow, name: 'khuya' } }), '00316');
   const mp = expect('A lập bữa tối ngày mai theo công thức', await call('POST', '/meal', { token: A.token, body: { recipeId, timestamp: tomorrow, name: 'tối' } }), '00322', (d) => d.plan.date === tomorrow);
   expect('B xem lịch ngày mai', await call('GET', `/meal?date=${tomorrow}`, { token: B.token }), '00348', (d) => d.plans.length === 1);
   expect('Kiểm tra nguyên liệu', await call('GET', `/meal/ingredients?planId=${mp.data.plan.id}`, { token: B.token }), '00535', (d) => d.missing.length === 2);
-  const tasksBefore = (await call('GET', `/shopping/${listId}`, { token: A.token })).data.list.tasks.length;
-  expect('Thêm nguyên liệu thiếu vào danh sách', await call('POST', '/meal/missing-to-shopping', { token: A.token, body: { planId: mp.data.plan.id, listId } }), '00536', (d) => d.list.tasks.length === tasksBefore + 1);
+  const itemsBefore = (await call('GET', `/shopping/${listId}`, { token: A.token })).data.list.items.length;
+  expect('Thêm nguyên liệu thiếu vào danh sách', await call('POST', '/meal/missing-to-shopping', { token: A.token, body: { planId: mp.data.plan.id, listId } }), '00536', (d) => d.list.items.length === itemsBefore + 1);
 
   section('UC10 Thống kê');
-  expect('Báo cáo', await call('GET', '/stats', { token: B.token }), '00540', (d) => d.totals.purchase === 2 && d.totals.consume === 1 && d.totals.discard === 1);
+  expect('Báo cáo', await call('GET', '/stats', { token: B.token }), '00107', (d) => d.totals.purchase === 2 && d.totals.consume === 1 && d.totals.discard === 1);
   expect('Lịch sử biến động', await call('GET', '/stats/events?type=purchase', { token: B.token }), '00525', (d) => d.total === 2);
-  expect('Khoảng thời gian sai', await call('GET', '/stats?from=2026-05-01&to=2026-01-01', { token: B.token }), '00541');
+  expect('Khoảng thời gian sai', await call('GET', '/stats?from=2026-05-01&to=2026-01-01', { token: B.token }), '00108');
 
   section('UC06 Nhắc hạn sử dụng');
   expect('Thêm trứng hết hạn sau 1 ngày', await call('POST', '/fridge', { token: B.token, body: { foodName: 'Trứng gà', quantity: 10, useWithin: '1' } }), '00202');
@@ -261,14 +261,14 @@ async function main() {
   const users = await call('GET', `/admin/users?q=${encodeURIComponent(C.email)}`, { token: AD });
   const cId = users.data.users[0].id;
   expect('Admin khóa C', await call('PUT', '/admin/users', { token: AD, body: { userId: cId, isActive: false } }), '00561');
-  expect('Token của C mất hiệu lực', await call('GET', '/user', { token: C.token }), '00012');
+  expect('Token của C mất hiệu lực', await call('GET', '/user', { token: C.token }), '00011');
   expect('C đăng nhập khi bị khóa', await call('POST', '/user/login', { body: { email: C.email, password: 'secret123' } }), '00043');
   expect('Admin mở khóa C', await call('PUT', '/admin/users', { token: AD, body: { userId: cId, isActive: true } }), '00561');
 
   section('Rời nhóm / xóa tài khoản');
   expect('B rời nhóm (danh sách được giao tự bỏ giao)', await call('POST', '/user/group/leave', { token: B.token }), '00500');
   expect('Danh sách không còn người được giao', await call('GET', `/shopping/${listId}`, { token: A.token }), '00570', (d) => d.list.assignedTo === null);
-  expect('B không còn thấy dữ liệu nhóm', await call('GET', '/fridge', { token: B.token }), '00225');
+  expect('B không còn thấy dữ liệu nhóm', await call('GET', '/fridge', { token: B.token }), '00096');
   const C2 = await call('POST', '/user/login', { body: { email: C.email, password: 'secret123' } });
   expect('C xóa tài khoản (nhóm của C bị giải tán)', await call('DELETE', '/user', { token: C2.data.accessToken }), '00092');
   expect('A (một mình) rời nhóm => giải tán nhóm', await call('POST', '/user/group/leave', { token: A.token }), '00500');

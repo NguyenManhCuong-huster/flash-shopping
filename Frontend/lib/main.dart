@@ -1,23 +1,123 @@
+// import 'package:flutter/material.dart';
+// import 'package:flutter_localizations/flutter_localizations.dart';
+// import 'package:intl/date_symbol_data_local.dart';
+// import 'package:provider/provider.dart';
+
+// import 'application/session_service.dart';
+// import 'bootstrap/app_dependencies.dart';
+// import 'screens/auth/login_page.dart';
+// import 'screens/main_layout.dart';
+// import 'utils/theme.dart';
+
+// void main() async {
+//   WidgetsFlutterBinding.ensureInitialized();
+//   await initializeDateFormatting('vi');
+//   final providers = await createDependencies();
+//   runApp(MultiProvider(providers: providers, child: PantrioApp()));
+// }
+
+// class PantrioApp extends StatelessWidget {
+//   const PantrioApp({super.key});
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return MaterialApp(
+//       title: 'Đi chợ tiện lợi',
+//       debugShowCheckedModeBanner: false,
+//       theme: AppTheme.light(),
+//       locale: const Locale('vi'),
+//       supportedLocales: const [Locale('vi'), Locale('en')],
+//       localizationsDelegates: const [
+//         GlobalMaterialLocalizations.delegate,
+//         GlobalWidgetsLocalizations.delegate,
+//         GlobalCupertinoLocalizations.delegate,
+//       ],
+//       home: const RootGate(),
+//     );
+//   }
+// }
+
+// /// Chọn màn hình gốc theo trạng thái phiên.
+// class RootGate extends StatefulWidget {
+//   const RootGate({super.key});
+//   @override
+//   State<RootGate> createState() => _RootGateState();
+// }
+
+// class _RootGateState extends State<RootGate> {
+//   @override
+//   void initState() {
+//     super.initState();
+//     _restoreSession();
+//   }
+
+//   void _restoreSession() {
+//     WidgetsBinding.instance.addPostFrameCallback((_) async {
+//       // Đợi hoàn tất frame hiện tại trước khi SessionService notifyListeners().
+//       await Future<void>.delayed(Duration.zero);
+//       if (!mounted) return;
+//       await context.read<SessionService>().restore();
+//     });
+//   }
+
+//   @override
+//   Widget build(BuildContext context) {
+//     final status = context.watch<SessionService>().status;
+//     return switch (status) {
+//       SessionStatus.unknown => const Scaffold(
+//         body: Center(child: CircularProgressIndicator()),
+//       ),
+//       SessionStatus.loggedOut => const LoginPage(),
+//       SessionStatus.loggedIn => const MainScreenLayout(),
+//     };
+//   }
+// }
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
+import 'package:provider/single_child_widget.dart';
 
 import 'application/session_service.dart';
 import 'bootstrap/app_dependencies.dart';
-import 'presentation/auth/login_page.dart';
-import 'presentation/home/home_shell.dart';
-import 'presentation/shared/theme.dart';
+import 'screens/auth/login_page.dart';
+import 'screens/main_layout.dart';
+import 'utils/theme.dart';
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await initializeDateFormatting('vi');
-  final providers = await createDependencies();
-  runApp(MultiProvider(providers: providers, child: const DiChoApp()));
+  
+  // 1. Chạy ngay một màn hình chờ đơn giản để tránh tình trạng màn hình đen
+  runApp(
+    const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      ),
+    ),
+  );
+
+  // 2. Khởi tạo các dependencies ngầm ở background
+  _initApp();
 }
 
-class DiChoApp extends StatelessWidget {
-  const DiChoApp({super.key});
+Future<void> _initApp() async {
+  await initializeDateFormatting('vi', null); // Nên truyền null ở tham số thứ 2 cho an toàn
+  
+  // Ép kiểu tường minh để MultiProvider không bị crash
+  final List<SingleChildWidget> providers = await createDependencies();
+  
+  // 3. Khởi chạy ứng dụng thật đè lên màn hình chờ
+  runApp(
+    MultiProvider(
+      providers: providers, 
+      child: const PantrioApp(),
+    )
+  );
+}
+
+class PantrioApp extends StatelessWidget {
+  const PantrioApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +137,6 @@ class DiChoApp extends StatelessWidget {
   }
 }
 
-/// Chọn màn hình gốc theo trạng thái phiên.
 class RootGate extends StatefulWidget {
   const RootGate({super.key});
   @override
@@ -48,16 +147,26 @@ class _RootGateState extends State<RootGate> {
   @override
   void initState() {
     super.initState();
-    context.read<SessionService>().restore();
+    _restoreSession();
+  }
+
+  void _restoreSession() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // Không cần Future.delayed ở đây nữa, gọi thẳng hàm restore
+      context.read<SessionService>().restore();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final status = context.watch<SessionService>().status;
     return switch (status) {
-      SessionStatus.unknown => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      SessionStatus.unknown => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      ),
       SessionStatus.loggedOut => const LoginPage(),
-      SessionStatus.loggedIn => const HomeShell(),
+      SessionStatus.loggedIn => const MainScreenLayout(),
     };
   }
 }

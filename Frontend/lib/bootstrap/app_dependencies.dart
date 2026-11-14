@@ -1,8 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:provider/single_child_widget.dart';
 
 import '../application/account_service.dart';
 import '../application/admin_ai_service.dart';
+import '../screens/auth/reset_password_view_model.dart';
 import '../application/insight_service.dart';
 import '../application/meal_service.dart';
 import '../application/media_resolver.dart';
@@ -23,9 +25,19 @@ import '../data/repositories/shopping_repository.dart';
 /// Không chứa quy tắc nghiệp vụ. View/ViewModel chỉ nhận Service (tầng nghiệp vụ), không nhận Repository.
 Future<List<SingleChildWidget>> createDependencies() async {
   final settings = SettingsStore();
-  await settings.load();
+  try {
+    await settings.load();
+  } catch (e) {
+    // Nếu không load được cài đặt (ví dụ shared_preferences lỗi), dùng giá trị mặc định
+    debugPrint('SettingsStore.load error: $e');
+  }
   final tokens = TokenStore();
-  await tokens.load();
+  try {
+    await tokens.load();
+  } catch (e) {
+    // Nếu không load được secure storage (ví dụ Android không có keystore), coi như chưa có session
+    debugPrint('TokenStore.load error: $e');
+  }
 
   final api = ApiClient(settings, tokens);
 
@@ -37,6 +49,9 @@ Future<List<SingleChildWidget>> createDependencies() async {
     ChangeNotifierProvider<InsightService>(create: (_) => InsightService(InsightRepository(api))),
     Provider<MediaResolver>.value(value: MediaResolver(api)),
     Provider<AccountService>.value(value: AccountService(authRepo, GroupRepository(api), session)),
+    ChangeNotifierProvider<ResetPasswordViewModel>.value(
+      value: ResetPasswordViewModel(AccountService(authRepo, GroupRepository(api), session)),
+    ),
     Provider<PantryService>.value(value: PantryService(FoodRepository(api))),
     Provider<ShoppingService>.value(value: ShoppingService(ShoppingRepository(api))),
     Provider<MealService>.value(value: MealService(MealRecipeRepository(api))),

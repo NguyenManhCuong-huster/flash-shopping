@@ -37,19 +37,29 @@ class SessionService extends ChangeNotifier {
 
   /// Khôi phục phiên khi mở ứng dụng.
   Future<void> restore() async {
-    if (!_auth.hasSession) return _setLoggedOut();
     try {
+      if (!_auth.hasSession) {
+        if (_status != SessionStatus.loggedOut) _setLoggedOut();
+        return;
+      }
       _user = await _auth.me();
-      _status = SessionStatus.loggedIn;
-      notifyListeners();
+      if (_status != SessionStatus.loggedIn) {
+        _status = SessionStatus.loggedIn;
+        notifyListeners();
+      }
     } on ApiException catch (e) {
       if (e.network) {
         // Mất mạng: vẫn giữ phiên, thử lại sau
-        _status = SessionStatus.loggedIn;
-        notifyListeners();
+        if (_status != SessionStatus.loggedIn) {
+          _status = SessionStatus.loggedIn;
+          notifyListeners();
+        }
       } else {
-        _setLoggedOut();
+        if (_status != SessionStatus.loggedOut) _setLoggedOut();
       }
+    } catch (e) {
+      // Lỗi không xác định (ví dụ secure storage, network stack): coi như chưa đăng nhập
+      if (_status != SessionStatus.loggedOut) _setLoggedOut();
     }
   }
 
@@ -79,7 +89,8 @@ class SessionService extends ChangeNotifier {
 
   void _setLoggedOut() {
     _user = null;
+    final wasLoggedIn = _status == SessionStatus.loggedIn;
     _status = SessionStatus.loggedOut;
-    notifyListeners();
+    if (wasLoggedIn) notifyListeners();
   }
 }

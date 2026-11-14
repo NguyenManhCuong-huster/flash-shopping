@@ -7,7 +7,10 @@ class SettingsStore {
   /// Điện thoại thật cắm USB + `adb reverse tcp:3001 tcp:3001` => localhost của điện thoại trỏ về máy tính.
   /// Qua Wi-Fi: đổi ở màn hình đăng nhập thành http://<IP máy tính>:3001. Máy ảo: http://10.0.2.2:3001.
   /// Có thể đặt sẵn khi build: --dart-define=API_BASE_URL=...
-  static const defaultBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://localhost:3001');
+  static const defaultBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://10.0.2.2:3001', // Android emulator -> host machine
+  );
 
   SharedPreferences? _prefs;
   String _baseUrl = defaultBaseUrl;

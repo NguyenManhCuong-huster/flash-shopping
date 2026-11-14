@@ -14,19 +14,42 @@ class AuthRepository {
   bool get hasSession => _tokens.hasSession;
 
   /// Trả về confirmToken dùng cho bước xác minh OTP.
-  Future<String> register({required String email, required String password, required String name, String language = 'vi', String timezone = 'Asia/Ho_Chi_Minh'}) async {
-    final r = await _api.post('/user', data: {'email': email, 'password': password, 'name': name, 'language': language, 'timezone': timezone});
+  Future<String> register({required String email, required String username, required String password, required String name, String language = 'vi', String timezone = 'Asia/Ho_Chi_Minh'}) async {
+    final r = await _api.post('/user', data: {'email': email, 'username': username, 'password': password, 'name': name, 'language': language, 'timezone': timezone});
     return r.map['confirmToken'] as String;
   }
-
   /// Trả về confirmToken mới (null nếu email đã được xác minh).
   Future<String?> sendVerificationCode(String email) async {
     final r = await _api.post('/user/send-verification-code', data: {'email': email});
     return r.map['confirmToken'] as String?;
   }
-
+  /// Xác minh email bằng mã OTP.
   Future<String> verifyEmail(String code, String confirmToken) async {
     final r = await _api.post('/user/verify-email', data: {'code': code, 'token': confirmToken});
+    return r.message;
+  }
+
+  /// Gửi mã OTP tới email để đặt lại mật khẩu.
+  Future<String> sendPasswordResetCode(String email) async {
+    final r = await _api.post('/user/send-password-reset-code', data: {'email': email});
+    return r.map['confirmToken'] as String;
+  }
+  /// Xác minh mã OTP và trả về confirmToken dùng cho bước đặt lại mật khẩu.
+  Future<String> verifyPasswordResetCode(String code, String resetToken) async {
+    final r = await _api.post('/user/verify-password-reset-code', data: {'code': code, 'token': resetToken});
+    return r.map['resetToken'] as String;
+  }
+  /// Đặt lại mật khẩu khi quên (dùng confirmToken từ gửi mã OTP).
+  Future<String> resetPassword({
+    required String email,
+    required String token,
+    required String newPassword,
+  }) async {
+    final r = await _api.post('/user/reset-password', data: {
+      'email': email.trim(),
+      'token': token,
+      'newPassword': newPassword,
+    });
     return r.message;
   }
 

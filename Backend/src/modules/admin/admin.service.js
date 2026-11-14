@@ -83,10 +83,10 @@ export async function updateUser(ctx, body = {}) {
     params.push(body.systemRole);
     sets.push(`system_role = $${params.length}`);
   }
-  ensure(sets.length, '00025');
+  ensure(sets.length, '00005');
   const user = await withTx(async (db) => {
     const { rows } = await db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = $1 RETURNING *`, params);
-    ensure(rows[0], '00052');
+    ensure(rows[0], '00007');
     if (deactivate) await revokeAllSessions(db, userId);
     await audit(db, ctx, 'admin.update_user', 'user', userId, { isActive: body.isActive, systemRole: body.systemRole });
     return rows[0];

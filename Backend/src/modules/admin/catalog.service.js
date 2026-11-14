@@ -68,13 +68,13 @@ function makeCatalog(table, codes) {
 export const CategoryService = makeCatalog('categories', {
   listOk: '00129',
   createMissing: '00131', createExists: '00132', createOk: '00135',
-  editMissing: '00136', editSame: '00137', editNotFound: '00138', editExists: '00138x', editOk: '00141',
-  deleteMissing: '00142', deleteNotFound: '00143', deleteOk: '00146',
+  editMissing: '00136', editSame: '00137', editNotFound: '00138', editExists: '00132', editOk: '00141',
+  deleteMissing: '00131', deleteNotFound: '00138', deleteOk: '00144',
 });
 
 export const UnitService = makeCatalog('units', {
   listOk: '00110',
   createMissing: '00112', createExists: '00113', createOk: '00116',
   editMissing: '00117', editSame: '00118', editNotFound: '00119', editExists: '00113', editOk: '00122',
-  deleteMissing: '00123', deleteNotFound: '00125', deleteOk: '00128',
+  deleteMissing: '00112', deleteNotFound: '00119', deleteOk: '00128',
 });

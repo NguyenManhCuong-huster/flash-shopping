@@ -11,15 +11,15 @@ function resolvePeriod(q, tz) {
   const today = localDate(new Date(), tz);
   const to = isPresent(q.to) ? isoDate(q.to) : today;
   const from = isPresent(q.from) ? isoDate(q.from) : to && addDays(to, -29);
-  ensure(from && to, '00541');
+  ensure(from && to, '00108');
   const span = daysBetween(from, to);
-  ensure(span >= 0 && span <= 366, '00541');
+  ensure(span >= 0 && span <= 366, '00108');
   return { from, to, start: zonedDateTimeToUtc(from, 0, 0, 0, tz), end: zonedDateTimeToUtc(addDays(to, 1), 0, 0, 0, tz) };
 }
 
 /** GET stats/?from&to - Báo cáo mua sắm và tiêu thụ/hủy bỏ của nhóm. */
 export async function summary(ctx, q = {}) {
-  const groupId = requireMember(ctx, '00185');
+  const groupId = requireMember(ctx, '00096');
   const { from, to, start, end } = resolvePeriod(q, ctx.timezone);
   const params = [groupId, start, end];
   const range = 'group_id = $1 AND occurred_at >= $2 AND occurred_at < $3';
@@ -83,21 +83,21 @@ export async function summary(ctx, q = {}) {
   const shopping = (
     await query(
       `SELECT count(DISTINCT sl.id)::int AS lists,
-              count(t.id)::int AS tasks,
-              count(t.id) FILTER (WHERE t.status = 'bought')::int AS bought_tasks
-         FROM shopping_lists sl LEFT JOIN shopping_tasks t ON t.list_id = sl.id
-        WHERE sl.group_id = $1 AND sl.shopping_date BETWEEN $2::date AND $3::date`,
+              count(t.id)::int AS items,
+              count(t.id) FILTER (WHERE t.status IN ('bought', 'in_fridge'))::int AS purchased_items
+         FROM shopping_lists sl LEFT JOIN shopping_items t ON t.list_id = sl.id
+        WHERE sl.group_id = $1 AND sl.created_at::date BETWEEN $2::date AND $3::date`,
       [groupId, from, to],
     )
   ).rows[0];
 
   const usedEvents = totals.consume + totals.discard;
-  return result('00540', {
+  return result('00107', {
     from,
     to,
     totals,
     wasteRate: usedEvents ? Math.round((totals.discard / usedEvents) * 1000) / 1000 : 0,
-    shopping: { lists: shopping.lists, tasks: shopping.tasks, boughtTasks: shopping.bought_tasks },
+    shopping: { lists: shopping.lists, items: shopping.items, purchasedItems: shopping.purchased_items },
     byFood,
     byCategory,
     daily,
@@ -106,7 +106,7 @@ export async function summary(ctx, q = {}) {
 
 /** GET stats/events/?from&to&type&page&limit - Lịch sử biến động kho (phân trang <= 50). */
 export async function events(ctx, q = {}) {
-  const groupId = requireMember(ctx, '00185');
+  const groupId = requireMember(ctx, '00096');
   const { from, to, start, end } = resolvePeriod(q, ctx.timezone);
   const p = parsePage(q, { defaultLimit: 50 });
   const params = [groupId, start, end];
@@ -130,7 +130,7 @@ export async function events(ctx, q = {}) {
     category: e.category_name,
     quantity: e.quantity,
     note: e.note,
-    shoppingTaskId: e.shopping_task_id,
+    shoppingItemId: e.shopping_item_id,
     actor: e.actor_user_id ? { id: e.actor_user_id, name: e.actor_name } : null,
     occurredAt: e.occurred_at,
   }));

@@ -8,7 +8,7 @@ import { query } from '../db/pool.js';
  * Xác thực Bearer token (access JWT). Gắn req.ctx gồm danh tính + nhóm + vai trò.
  * - Thiếu token          -> 00006
  * - Token hết hạn        -> 00011
- * - Token sai / phiên đã thu hồi -> 00012
+ * - Token sai / phiên đã thu hồi -> 00011
  */
 export async function requireAuth(req, _res, next) {
   const header = req.headers.authorization || '';
@@ -19,11 +19,11 @@ export async function requireAuth(req, _res, next) {
   try {
     payload = jwt.verify(token, env.jwtAccessSecret, { algorithms: ['HS256'] });
   } catch (err) {
-    throw new AppError(err.name === 'TokenExpiredError' ? '00011' : '00012');
+    throw new AppError(err.name === 'TokenExpiredError' ? '00011' : '00011');
   }
 
   const userId = Number(payload.sub);
-  if (!Number.isInteger(userId) || userId <= 0) throw new AppError('00012');
+  if (!Number.isInteger(userId) || userId <= 0) throw new AppError('00011');
 
   // Phiên bị thu hồi (đăng xuất, đổi mật khẩu, bị khóa) thì access token cũng mất hiệu lực
   if (payload.sid) {
@@ -32,11 +32,11 @@ export async function requireAuth(req, _res, next) {
       userId,
     ]);
     const s = rows[0];
-    if (!s || s.revoked_at || new Date(s.expires_at) < new Date()) throw new AppError('00012');
+    if (!s || s.revoked_at || new Date(s.expires_at) < new Date()) throw new AppError('00011');
   }
 
   const ctx = await loadContext(userId, { sessionId: payload.sid ?? null });
-  if (!ctx) throw new AppError('00012');
+  if (!ctx) throw new AppError('00011');
   if (!ctx.isActive) throw new AppError('00043');
   req.ctx = ctx;
   next();

@@ -1,108 +1,125 @@
 import 'common.dart';
 import 'food.dart';
 import 'user.dart';
+import 'package:flutter/material.dart';
+import '../../utils/app_colors.dart';
 
-class ShoppingTask {
-  const ShoppingTask({
+enum ShoppingStatus {
+  pending('pending', 'Chưa mua', AppColor.amber50, AppColor.amber500),
+  bought('bought', 'Đã mua', AppColor.emerald50, AppColor.emerald500),
+  inFridge('in_fridge', 'Đã cất vào tủ lạnh',AppColor.blue50, AppColor.blue500);
+
+  const ShoppingStatus(
+    this.value,
+    this.label,
+    this.badgeColor,
+    this.labelColor,
+  );
+  final String value;
+  final String label;
+  final Color badgeColor;
+  final Color labelColor;
+  static ShoppingStatus of(String? value) => ShoppingStatus.values.firstWhere(
+    (s) => s.value == value,
+    orElse: () => ShoppingStatus.pending,
+  );
+}
+
+class ShoppingItem {
+  const ShoppingItem({
     required this.id,
     required this.food,
     required this.quantity,
     required this.status,
-    this.boughtQuantity,
-    this.boughtByName,
-    this.boughtAt,
+    this.purchasedQuantity,
+    this.purchasedByName,
+    this.purchasedAt,
   });
 
   final int id;
   final Food food;
   final double quantity;
+  final ShoppingStatus status;
+  final double? purchasedQuantity;
+  final String? purchasedByName;
+  final DateTime? purchasedAt;
+  // bool get isPending => status == ShoppingStatus.pending;
+  // bool get isBought => status == ShoppingStatus.bought;
+  // bool get isInFridge => status == ShoppingStatus.inFridge;
 
-  /// pending | bought
-  final String status;
-  final double? boughtQuantity;
-  final String? boughtByName;
-  final DateTime? boughtAt;
-
-  bool get isBought => status == 'bought';
-
-  factory ShoppingTask.fromJson(Json j) => ShoppingTask(
-        id: toInt(j['id']),
-        food: Food.fromJson(asJson(j['food'])),
-        quantity: toDouble(j['quantity']),
-        status: j['status']?.toString() ?? 'pending',
-        boughtQuantity: toDoubleOrNull(j['boughtQuantity']),
-        boughtByName: asJson(j['boughtBy'])['name']?.toString(),
-        boughtAt: toDate(j['boughtAt']),
-      );
+  factory ShoppingItem.fromJson(Json j) => ShoppingItem(
+    id: toInt(j['id']),
+    food: Food.fromJson(asJson(j['food'])),
+    quantity: toDouble(j['quantity']),
+    status: ShoppingStatus.of(j['status']?.toString()),
+    purchasedQuantity: toDoubleOrNull(j['purchasedQuantity']),
+    purchasedByName: asJson(j['purchasedBy'])['name']?.toString(),
+    purchasedAt: toDate(j['purchasedAt']),
+  );
 }
 
-class ShoppingList {
-  const ShoppingList({
+class ShoppingSession {
+  const ShoppingSession({
     required this.id,
     required this.name,
     this.note,
-    required this.date,
+    required this.createdAt,
     this.assignedTo,
-    required this.tasks,
-    required this.total,
-    required this.bought,
+    required this.shoppingItems,
+    required this.totalItems,
+    this.completedAt,
+    required this.purchasedItemsCount,
     required this.done,
   });
 
   final int id;
   final String name;
   final String? note;
-
-  /// Ngày đi chợ dạng YYYY-MM-DD
-  final String date;
+  final DateTime createdAt;
   final Member? assignedTo;
-  final List<ShoppingTask> tasks;
-  final int total;
-  final int bought;
+  final List<ShoppingItem> shoppingItems;
+  final int totalItems;
+  final DateTime? completedAt;
+  final int purchasedItemsCount;
   final bool done;
 
-  List<ShoppingTask> get pendingTasks => tasks.where((t) => !t.isBought).toList();
+  List<ShoppingItem> get pendingItems => shoppingItems.where((item) => item.status == ShoppingStatus.pending).toList();
+  List<ShoppingItem> get purchasedItems => shoppingItems.where((item) => item.status == ShoppingStatus.bought || item.status == ShoppingStatus.inFridge).toList();
+  List<ShoppingItem> get fridgeItems => shoppingItems.where((item) => item.status == ShoppingStatus.inFridge).toList();
 
-  factory ShoppingList.fromJson(Json j) {
+  factory ShoppingSession.fromJson(Json j) {
     final progress = asJson(j['progress']);
-    return ShoppingList(
+    return ShoppingSession(
       id: toInt(j['id']),
       name: j['name']?.toString() ?? '',
       note: j['note']?.toString(),
-      date: j['date']?.toString() ?? '',
-      assignedTo: j['assignedTo'] is Map ? Member.fromJson(asJson(j['assignedTo'])) : null,
-      tasks: asList(j['tasks']).map(ShoppingTask.fromJson).toList(),
-      total: toInt(progress['total']),
-      bought: toInt(progress['bought']),
+      createdAt:
+          toDate(j['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      assignedTo: j['assignedTo'] is Map
+          ? Member.fromJson(asJson(j['assignedTo']))
+          : null,
+      shoppingItems: asList(j['items']).map(ShoppingItem.fromJson).toList(),
+      totalItems: toInt(progress['total']),
+      completedAt: toDate(j['completedAt']),
+      purchasedItemsCount: toInt(progress['purchased']),
       done: progress['done'] == true,
     );
   }
 }
 
 /// Kết quả thêm nhiều mục: mục lỗi được trả rõ để người dùng sửa (UC03 - 5a).
-class TaskBatchResult {
-  const TaskBatchResult(this.createdCount, this.failed, this.list);
+class ItemBatchResult {
+  const ItemBatchResult(this.createdCount, this.failed, this.session);
   final int createdCount;
   final List<({String foodName, String message})> failed;
-  final ShoppingList? list;
+  final ShoppingSession? session;
 }
 
 /// Một dòng xác nhận mua gửi lên API (UC04).
 class PurchaseItem {
-  PurchaseItem({required this.taskId, required this.boughtQuantity, this.addToFridge = true, this.useWithin, this.location = StorageLocation.cool});
-  final int taskId;
-  double boughtQuantity;
-  bool addToFridge;
+  PurchaseItem({required this.itemId, required this.purchasedQuantity});
+  final int itemId;
+  double purchasedQuantity;
 
-  /// Ngày hết hạn YYYY-MM-DD
-  String? useWithin;
-  StorageLocation location;
-
-  Json toJson() => {
-        'taskId': taskId,
-        'boughtQuantity': boughtQuantity,
-        'addToFridge': addToFridge,
-        if (addToFridge) 'useWithin': useWithin,
-        if (addToFridge) 'location': location.code,
-      };
+  Json toJson() => {'itemId': itemId, 'purchasedQuantity': purchasedQuantity};
 }

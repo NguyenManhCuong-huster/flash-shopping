@@ -57,9 +57,11 @@ Mã phản hồi mới nằm trong dải `005xx` (`src/common/codes.js`).
 
 | API | Mục đích |
 |---|---|
-| `POST shopping/purchase/` + header `Idempotency-Key` | UC04: xác nhận mua nhiều mục, đưa vào tủ lạnh, ghi lịch sử – một giao dịch, chống lặp |
+| `POST shopping/purchase/` + header `Idempotency-Key` | UC04: chỉ xác nhận các mục đã mua, ghi lịch sử – một giao dịch, chống lặp |
+| `POST fridge/from-purchase/` + header `Idempotency-Key` | Nhập từng mục đã mua vào tủ lạnh với số lượng thực tế, vị trí, hạn dùng và ghi chú |
 | `GET shopping/:listId/` | Chi tiết một danh sách |
 | `POST fridge/consume/` `{itemId, quantity, type: consume|discard, version}` | UC05: trừ tồn + lịch sử trong giao dịch; `version` phát hiện cập nhật đồng thời (00523) |
+| `POST fridge/remove/` `{itemId}` | Lấy toàn bộ một đợt thực phẩm ra khỏi tủ lạnh |
 | `GET fridge/item/:itemId/` | Mở chi tiết từ thông báo (UC06 bước 6) |
 | `GET recipe/suggest/`, `GET recipe/:id/` | UC09 gợi ý món từ tủ lạnh; chi tiết công thức |
 | `GET meal/ingredients/`, `POST meal/missing-to-shopping/` | UC08: nguyên liệu cần/có/thiếu; thêm phần thiếu vào danh sách (extend) |
@@ -76,7 +78,7 @@ Mã phản hồi mới nằm trong dải `005xx` (`src/common/codes.js`).
 | `foods.name` UNIQUE toàn hệ thống | UNIQUE theo `(group_id, name)` | Hai gia đình đều có "Trứng gà". Báo cáo nêu phương án này kèm điều kiện "mọi API tra tên phải có phạm vi nhóm" – đã đáp ứng vì nhóm lấy từ token. |
 | Công thức chỉ tham chiếu 1 food | Thêm bảng `recipe_ingredients` (nguyên liệu phụ, định lượng) | UC08/UC09 cần "nguyên liệu thiếu"; `recipes.food_id` vẫn là nguyên liệu chính. |
 | `shopping_lists.assigned_user_id` NOT NULL | Cho phép NULL | UC03 ghi "người được giao nếu có"; thành viên rời nhóm thì danh sách tự về "chưa giao". |
-| Bảng thiếu trạng thái mua, vị trí tủ lạnh | Thêm `shopping_tasks.status/bought_*`, `fridge_items.location/version`, `stock_events`, `idempotency_keys`, `notifications`, `device_tokens` | Cần cho UC04, UC05, UC06, UC10. |
+| Bảng thiếu trạng thái mua, vị trí tủ lạnh | Thêm `shopping_items.status/bought_*`, `fridge_items.location/version`, `stock_events`, `idempotency_keys`, `notifications`, `device_tokens` | Cần cho UC04, UC05, UC06, UC10. |
 | AI: "20 tin gần nhất + summary"; lọc tool theo vai trò | Gửi toàn bộ lịch sử (append-only) + compaction phía server; danh sách tool cố định, Guard/Service chặn khi thực thi | Sửa/cắt lịch sử hoặc đổi system prompt/tool giữa các lượt làm mất prompt cache và làm vô hiệu "thinking" của model. Thời gian, vai trò, màn hình hiện tại được gắn vào tin nhắn người dùng. |
 | `ai_messages.content` JSONB | JSON | JSONB sắp xếp lại khóa, khiến lịch sử gửi lại không còn giống từng byte (phát hiện bởi `ai-mock-test.mjs`). |
 | Ngôn ngữ `tr-en` (mã 00079) | `vi`, `en` | |

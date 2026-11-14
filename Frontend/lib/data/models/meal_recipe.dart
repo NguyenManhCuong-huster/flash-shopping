@@ -1,4 +1,6 @@
 import 'common.dart';
+import 'package:flutter/material.dart';
+import '../../utils/app_colors.dart';
 
 /// Tham chiếu rút gọn tới thực phẩm (id, tên, đơn vị).
 class FoodRef {
@@ -8,24 +10,41 @@ class FoodRef {
   final String unit;
   final String? imageUrl;
 
-  factory FoodRef.fromJson(Json j) =>
-      FoodRef(toInt(j['id']), j['name']?.toString() ?? '', j['unit']?.toString() ?? '', imageUrl: j['imageUrl']?.toString());
+  factory FoodRef.fromJson(Json j) => FoodRef(
+    toInt(j['id']),
+    j['name']?.toString() ?? '',
+    j['unit']?.toString() ?? '',
+    imageUrl: j['imageUrl']?.toString(),
+  );
 }
 
 enum MealSlot {
-  breakfast('sáng', 'Bữa sáng'),
-  lunch('trưa', 'Bữa trưa'),
-  dinner('tối', 'Bữa tối');
+  breakfast('sáng', 'Bữa sáng', AppColor.amber50, AppColor.amber500),
+  lunch('trưa', 'Bữa trưa', AppColor.green50, AppColor.green500),
+  dinner('tối', 'Bữa tối', AppColor.blue50, AppColor.blue500);
 
-  const MealSlot(this.code, this.label);
+  const MealSlot(this.code, this.label, this.badgeColor, this.labelColor);
   final String code;
   final String label;
+  final Color badgeColor;
+  final Color labelColor;
 
-  static MealSlot of(String? code) => MealSlot.values.firstWhere((m) => m.code == code, orElse: () => MealSlot.dinner);
+  static MealSlot of(String? code) => MealSlot.values.firstWhere(
+    (m) => m.code == code,
+    orElse: () => MealSlot.dinner,
+  );
 }
 
 class MealPlan {
-  const MealPlan({required this.id, required this.date, required this.plannedAt, required this.meal, required this.food, this.recipeId, this.recipeName});
+  const MealPlan({
+    required this.id,
+    required this.date,
+    required this.plannedAt,
+    required this.meal,
+    required this.food,
+    this.recipeId,
+    this.recipeName,
+  });
   final int id;
   final String date;
   final DateTime plannedAt;
@@ -50,7 +69,14 @@ class MealPlan {
 
 /// Trạng thái một nguyên liệu so với tủ lạnh.
 class IngredientStatus {
-  const IngredientStatus({required this.food, this.requiredQty, required this.available, required this.missing, required this.enough, this.expiringSoon = false});
+  const IngredientStatus({
+    required this.food,
+    this.requiredQty,
+    required this.available,
+    required this.missing,
+    required this.enough,
+    this.expiringSoon = false,
+  });
   final FoodRef food;
 
   /// null = "cần có" (không định lượng)
@@ -61,13 +87,13 @@ class IngredientStatus {
   final bool expiringSoon;
 
   factory IngredientStatus.fromJson(Json j) => IngredientStatus(
-        food: FoodRef.fromJson(asJson(j['food'])),
-        requiredQty: toDoubleOrNull(j['requiredQuantity']),
-        available: toDouble(j['availableQuantity']),
-        missing: toDouble(j['missingQuantity']),
-        enough: j['enough'] == true,
-        expiringSoon: j['expiringSoon'] == true,
-      );
+    food: FoodRef.fromJson(asJson(j['food'])),
+    requiredQty: toDoubleOrNull(j['requiredQuantity']),
+    available: toDouble(j['availableQuantity']),
+    missing: toDouble(j['missingQuantity']),
+    enough: j['enough'] == true,
+    expiringSoon: j['expiringSoon'] == true,
+  );
 }
 
 class RecipeIngredient {
@@ -75,7 +101,10 @@ class RecipeIngredient {
   final FoodRef food;
   final double? quantity;
 
-  factory RecipeIngredient.fromJson(Json j) => RecipeIngredient(FoodRef.fromJson(asJson(j['food'])), toDoubleOrNull(j['quantity']));
+  factory RecipeIngredient.fromJson(Json j) => RecipeIngredient(
+    FoodRef.fromJson(asJson(j['food'])),
+    toDoubleOrNull(j['quantity']),
+  );
 }
 
 class Recipe {
@@ -111,13 +140,22 @@ class Recipe {
       food: FoodRef.fromJson(asJson(j['food'])),
       createdById: by == null ? null : toInt(by['id']),
       createdByName: by?['name']?.toString(),
-      ingredients: asList(j['ingredients']).map(RecipeIngredient.fromJson).toList(),
+      ingredients: asList(
+        j['ingredients'],
+      ).map(RecipeIngredient.fromJson).toList(),
     );
   }
 }
 
 class RecipeSuggestion {
-  const RecipeSuggestion({required this.recipe, required this.total, required this.available, required this.canCook, required this.expiring, required this.ingredients});
+  const RecipeSuggestion({
+    required this.recipe,
+    required this.total,
+    required this.available,
+    required this.canCook,
+    required this.expiring,
+    required this.ingredients,
+  });
   final Recipe recipe;
   final int total;
   final int available;
@@ -125,14 +163,19 @@ class RecipeSuggestion {
   final List<String> expiring;
   final List<IngredientStatus> ingredients;
 
-  List<IngredientStatus> get missing => ingredients.where((i) => !i.enough).toList();
+  List<IngredientStatus> get missing =>
+      ingredients.where((i) => !i.enough).toList();
 
   factory RecipeSuggestion.fromJson(Json j) => RecipeSuggestion(
-        recipe: Recipe.fromJson(asJson(j['recipe'])),
-        total: toInt(j['totalIngredients']),
-        available: toInt(j['availableIngredients']),
-        canCook: j['canCook'] == true,
-        expiring: ((j['expiringIngredients'] as List?) ?? const []).map((e) => e.toString()).toList(),
-        ingredients: asList(j['ingredients']).map(IngredientStatus.fromJson).toList(),
-      );
+    recipe: Recipe.fromJson(asJson(j['recipe'])),
+    total: toInt(j['totalIngredients']),
+    available: toInt(j['availableIngredients']),
+    canCook: j['canCook'] == true,
+    expiring: ((j['expiringIngredients'] as List?) ?? const [])
+        .map((e) => e.toString())
+        .toList(),
+    ingredients: asList(
+      j['ingredients'],
+    ).map(IngredientStatus.fromJson).toList(),
+  );
 }

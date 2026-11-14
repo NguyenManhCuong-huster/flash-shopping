@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Lưu access/refresh token trong kho bảo mật của thiết bị
@@ -14,8 +15,15 @@ class TokenStore {
   String? _refreshCache;
 
   Future<void> load() async {
-    _accessCache = await _storage.read(key: _access);
-    _refreshCache = await _storage.read(key: _refresh);
+    try {
+      _accessCache = await _storage.read(key: _access);
+      _refreshCache = await _storage.read(key: _refresh);
+    } catch (e) {
+      // Secure storage không khả dụng trên thiết bị này (ví dụ Android emulator không có keystore)
+      debugPrint('TokenStore.load error: $e');
+      _accessCache = null;
+      _refreshCache = null;
+    }
   }
 
   String? get accessToken => _accessCache;

@@ -18,14 +18,17 @@ const RESEND_COOLDOWN_MS = 60_000;
 const validPassword = (p) => typeof p === 'string' && p.length >= 6 && p.length <= 20;
 const normEmail = (e) => e.trim().toLowerCase();
 
-async function createVerification(db, userId) {
-  await db.query('UPDATE email_verifications SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [userId]);
+async function createVerification(db, userId, type = 'email_verification') {
+  await db.query(
+    'UPDATE email_verifications SET used_at = now() WHERE user_id = $1 AND type = $2 AND used_at IS NULL',
+    [userId, type],
+  );
   const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
   const confirmToken = crypto.randomBytes(32).toString('hex');
   await db.query(
-    `INSERT INTO email_verifications (user_id, code_hash, token_hash, expires_at)
-     VALUES ($1, $2, $3, now() + make_interval(mins => $4))`,
-    [userId, sha256(code), sha256(confirmToken), env.verificationCodeTtlMinutes],
+    `INSERT INTO email_verifications (user_id, code_hash, token_hash, type, expires_at)
+     VALUES ($1, $2, $3, $4, now() + make_interval(mins => $5))`,
+    [userId, sha256(code), sha256(confirmToken), type, env.verificationCodeTtlMinutes],
   );
   return { code, confirmToken };
 }
@@ -39,7 +42,7 @@ function deliver(user, code) {
 /** POST user/ - Đăng ký tài khoản (chưa xác minh). */
 export async function register(body = {}) {
   const { email, password, name, language, timezone, deviceId } = body;
-  ensure(isPresent(email) && isPresent(password) && isPresent(name), '00025');
+  ensure(isPresent(email) && isPresent(password) && isPresent(name), '00005');
   ensure(isEmail(email), '00026');
   ensure(validPassword(password), '00027');
   const cleanName = cleanString(name, { min: 4, max: 29 });
@@ -59,7 +62,7 @@ export async function register(body = {}) {
         [normEmail(email), passwordHash, cleanName, lang, tz, isPresent(deviceId) ? String(deviceId) : null],
       );
       const user = rows[0];
-      const v = await createVerification(db, user.id);
+      const v = await createVerification(db, user.id, 'email_verification');
       await audit(db, { userId: user.id }, 'user.register', 'user', user.id);
       return { user, ...v };
     });
@@ -74,19 +77,20 @@ export async function register(body = {}) {
 /** POST user/send-verification-code/ - Gửi lại mã OTP. */
 export async function sendVerificationCode(body = {}) {
   ensure(isPresent(body.email), '00005');
-  ensure(isEmail(body.email), '00029');
+  ensure(isEmail(body.email), '00026');
   const { rows } = await query('SELECT * FROM users WHERE lower(email) = $1', [normEmail(body.email)]);
   const user = rows[0];
   ensure(user, '00036');
   if (user.email_verified_at) return result('00058', { alreadyVerified: true });
 
-  const last = await query('SELECT created_at FROM email_verifications WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [
-    user.id,
-  ]);
+  const last = await query(
+    'SELECT created_at FROM email_verifications WHERE user_id = $1 AND type = $2 ORDER BY id DESC LIMIT 1',
+    [user.id, 'email_verification'],
+  );
   if (last.rows[0] && Date.now() - new Date(last.rows[0].created_at).getTime() < RESEND_COOLDOWN_MS) {
     throw new AppError('00024');
   }
-  const v = await withTx((db) => createVerification(db, user.id));
+  const v = await withTx((db) => createVerification(db, user.id, 'email_verification'));
   deliver(user, v.code);
   return result('00048', { confirmToken: v.confirmToken });
 }
@@ -98,7 +102,7 @@ export async function verifyEmail(body = {}) {
   // Tăng số lần thử một cách nguyên tử trước khi so mã => chống dò mã song song
   const { rows } = await query(
     `UPDATE email_verifications SET attempt_count = attempt_count + 1
-      WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() AND attempt_count < $2
+      WHERE token_hash = $1 AND type = 'email_verification' AND used_at IS NULL AND expires_at > now() AND attempt_count < $2
       RETURNING *`,
     [sha256(String(body.token)), MAX_VERIFY_ATTEMPTS],
   );
@@ -108,11 +112,11 @@ export async function verifyEmail(body = {}) {
   ensure(ok, '00054', { attemptsLeft: MAX_VERIFY_ATTEMPTS - v.attempt_count });
 
   return withTx(async (db) => {
-    const used = await db.query(
-      'UPDATE email_verifications SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id',
+    const verified = await db.query(
+      'UPDATE email_verifications SET verified_at = now() WHERE id = $1 AND verified_at IS NULL AND used_at IS NULL RETURNING id',
       [v.id],
     );
-    ensure(used.rowCount, '00055');
+    ensure(verified.rowCount, '00055');
     const u = await db.query(
       'UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()) WHERE id = $1 RETURNING *',
       [v.user_id],
@@ -122,15 +126,93 @@ export async function verifyEmail(body = {}) {
   });
 }
 
+/** POST user/send-password-reset-code/ - Gửi lại mã đặt lại mật khẩu. */
+export async function sendPasswordResetCode(body = {}) {
+  ensure(isPresent(body.email), '00005');
+  ensure(isEmail(body.email), '00026');
+  const { rows } = await query('SELECT * FROM users WHERE lower(email) = $1', [normEmail(body.email)]);
+  const user = rows[0];
+  ensure(user, '00036');
+
+  const last = await query('SELECT created_at FROM email_verifications WHERE user_id = $1 AND type = $2 ORDER BY id DESC LIMIT 1', [
+    user.id,
+    'password_reset',
+  ]);
+  if (last.rows[0] && Date.now() - new Date(last.rows[0].created_at).getTime() < RESEND_COOLDOWN_MS) {
+    throw new AppError('00055');
+  }
+  const v = await withTx((db) => createVerification(db, user.id, 'password_reset'));
+  deliver(user, v.code);
+  return result('00048', { confirmToken: v.confirmToken });
+}
+
+/** POST user/verify-password-reset-code/ - Xác minh mã OTP đặt lại mật khẩu. */
+export async function verifyPasswordResetCode(body = {}) {
+  ensure(isPresent(body.token), '00055');
+  ensure(isPresent(body.code), '00053');
+  const { rows } = await query(
+    `UPDATE email_verifications SET attempt_count = attempt_count + 1
+      WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() AND attempt_count < $2 AND type = $3
+      RETURNING *`,
+    [sha256(String(body.token)), MAX_VERIFY_ATTEMPTS, 'password_reset'],
+  );
+  const v = rows[0];
+  ensure(v, '00055');
+  const ok = crypto.timingSafeEqual(Buffer.from(sha256(String(body.code).trim())), Buffer.from(v.code_hash));
+  ensure(ok, '00054', { attemptsLeft: MAX_VERIFY_ATTEMPTS - v.attempt_count });
+  return withTx(async (db) => {
+    const verified = await db.query(
+      'UPDATE email_verifications SET verified_at = now() WHERE id = $1 AND verified_at IS NULL AND used_at IS NULL RETURNING id',
+      [v.id],
+    );
+    ensure(verified.rowCount, '00055');
+    return result('00058', { message: 'Mã xác minh hợp lệ. Vui lòng đặt lại mật khẩu.' });
+  });
+}
+
+/** POST user/reset-password/ - Đặt lại mật khẩu khi quên (dùng confirmToken từ gửi mã OTP). */
+export async function resetPassword(body = {}) {
+  const { email, token, newPassword } = body;
+  ensure(isPresent(email) && isPresent(token) && isPresent(newPassword), '00580');
+  ensure(isEmail(email), '00581');
+  ensure(validPassword(newPassword), '00027');
+
+  const { rows } = await query('SELECT * FROM users WHERE lower(email) = $1', [normEmail(email)]);
+  const user = rows[0];
+  ensure(user, '00036');
+
+  // Kiểm tra token xác minh còn hiệu lực, đã xác minh và chưa dùng
+  const { rows: vRows } = await query(
+    `SELECT * FROM email_verifications
+     WHERE user_id = $1 AND token_hash = $2 AND type = 'password_reset'
+       AND verified_at IS NOT NULL AND used_at IS NULL AND expires_at > now()
+     ORDER BY id DESC LIMIT 1
+     FOR UPDATE`,
+    [user.id, sha256(String(token))],
+  );
+  const v = vRows[0];
+  ensure(v, '00585');
+
+  // Cập nhật mật khẩu mới và đánh dấu token đã dùng
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await withTx(async (db) => {
+    await db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, user.id]);
+    await db.query('UPDATE email_verifications SET used_at = now() WHERE id = $1 AND used_at IS NULL', [v.id]);
+    await audit(db, { userId: user.id }, 'user.reset_password', 'user', user.id);
+  });
+
+  return result('00076');
+}
+
 /** POST user/login/ */
 export async function login(body = {}) {
   const { email, password, deviceId } = body;
-  ensure(isPresent(email) && isPresent(password), '00038');
-  ensure(isEmail(email), '00039');
-  ensure(validPassword(password), '00040');
+  ensure(isPresent(email) && isPresent(password), '00005');
+  ensure(isEmail(email), '00026');
+  ensure(validPassword(password), '00027');
   const { rows } = await query('SELECT * FROM users WHERE lower(email) = $1', [normEmail(email)]);
   const user = rows[0];
-  ensure(user, '00042');
+  ensure(user, '00036');
   ensure(await bcrypt.compare(password, user.password_hash), '00045');
   ensure(user.is_active, '00043');
   ensure(user.email_verified_at, '00044', { email: user.email });
@@ -154,20 +236,20 @@ export async function refreshToken(body = {}) {
     [hash],
   );
   const s = rows[0];
-  ensure(s, '00063');
+  ensure(s, '00011');
   if (s.revoked_at) {
     // Refresh token đã dùng/thu hồi bị gửi lại => nghi bị lộ, thu hồi toàn bộ phiên của người dùng
     await revokeAllSessions(null, s.user_id);
-    throw new AppError('00061');
+    throw new AppError('00011');
   }
-  ensure(new Date(s.expires_at) > new Date(), '00062');
+  ensure(new Date(s.expires_at) > new Date(), '00011');
   ensure(s.is_active, '00043');
   return withTx(async (db) => {
     const revoked = await db.query(
       'UPDATE auth_sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL RETURNING id',
       [s.id],
     );
-    ensure(revoked.rowCount, '00061');
+    ensure(revoked.rowCount, '00011');
     const tokens = await createSession(db, { id: s.user_id, system_role: s.system_role });
     return result('00065', tokens);
   });

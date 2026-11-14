@@ -21,7 +21,7 @@ class Validators {
 
   static String? name(String? v) {
     final s = v?.trim() ?? '';
-    if (s.isEmpty) return 'Họ tên không được để trống';
+    if (s.isEmpty) return 'Họ và tên không được để trống';
     if (s.length < 4 || s.length > 29) return 'Họ tên cần từ 4 đến 29 ký tự';
     return null;
   }

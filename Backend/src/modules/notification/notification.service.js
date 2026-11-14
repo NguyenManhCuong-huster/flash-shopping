@@ -37,7 +37,7 @@ export async function markRead(ctx, body = {}) {
   const ids = maybeJson(body.ids);
   ensure(Array.isArray(ids) && ids.length > 0 && ids.length <= 200, '00022');
   const parsed = ids.map(toId);
-  ensure(parsed.every(Boolean), '00023');
+  ensure(parsed.every(Boolean), '00022');
   await query('UPDATE notifications SET read_at = COALESCE(read_at, now()) WHERE user_id = $1 AND id = ANY($2::bigint[])', [
     ctx.userId,
     parsed,

@@ -37,9 +37,9 @@ class MealRecipeRepository {
   }
 
   /// Thêm nguyên liệu thiếu vào danh sách có sẵn (listId) hoặc danh sách mới. Trả null nếu không thiếu gì.
-  Future<ShoppingList?> addMissingToShopping({int? planId, String? date, int? listId, String? newListName}) async {
+  Future<ShoppingSession?> addMissingToShopping({int? planId, String? date, int? listId, String? newListName}) async {
     final r = await _api.post('/meal/missing-to-shopping', data: {'planId': planId, 'date': date, 'listId': listId, 'newListName': newListName});
-    return r.map['list'] == null ? null : ShoppingList.fromJson(asJson(r.map['list']));
+    return r.map['list'] == null ? null : ShoppingSession.fromJson(asJson(r.map['list']));
   }
 
   // ---------- Công thức ----------
