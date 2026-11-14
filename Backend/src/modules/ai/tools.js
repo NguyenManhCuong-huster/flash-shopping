@@ -1,51 +1,47 @@
+import { query } from '../../db/pool.js';
+import { AppError } from '../../common/errors.js';
+import { requireMember } from '../../common/permissions.js';
 import * as User from '../user/user.service.js';
 import * as Group from '../group/group.service.js';
 import { CategoryService, UnitService } from '../admin/catalog.service.js';
 import * as Food from '../food/food.service.js';
+import { findFoodByName } from '../food/food.repo.js';
 import * as Fridge from '../fridge/fridge.service.js';
 import * as Shopping from '../shopping/shopping.service.js';
 import * as Meal from '../meal/meal.service.js';
 import * as Recipe from '../recipe/recipe.service.js';
+import * as Stats from '../stats/stats.service.js';
 
 /**
- * Tool Registry (Bảng 32). Mỗi công cụ gọi đúng Service mà REST Controller dùng, nên chung
- * validation, kiểm tra quyền và mã phản hồi. Không công cụ nào nhận user_id / group_id.
+ * Tool Registry. Chính sách:
+ *  - AI chỉ được XEM và TẠO dữ liệu; không có công cụ sửa/xóa (người dùng tự làm trong ứng dụng).
+ *  - AI không thấy ID: tham số tham chiếu bằng TÊN (thực phẩm, danh sách, công thức), kết quả được
+ *    rút gọn không kèm id và còn được lọc lần nữa bằng stripHidden() trước khi gửi cho LLM.
+ *  - Danh tính và nhóm luôn lấy từ token (ctx); không công cụ nào nhận user_id / group_id.
+ *  - Mọi công cụ gọi đúng Service của REST nên chung validation, quyền và mã phản hồi.
  *
- * risk: read | write | destructive      requires: user | member | leader (để lọc gợi ý chủ động)
- * run(ctx, args) -> {code, data}        compact(data) -> dữ liệu rút gọn gửi cho LLM
- * refs(data) -> các id có thể tham chiếu bằng "$action:<id>.<field>"
+ * risk: read | write      requires: user | member | leader (lọc gợi ý chủ động / hiển thị)
  */
 
 // ---------- JSON Schema dùng chung ----------
 const str = (max = 150, description) => ({ type: 'string', minLength: 1, maxLength: max, ...(description ? { description } : {}) });
 const obj = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
-const id = (description) => ({ type: 'integer', minimum: 1, ...(description ? { description } : {}) });
 const qty = { type: 'number', exclusiveMinimum: 0, description: 'Số lượng theo đơn vị của thực phẩm' };
 const date = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Ngày dạng YYYY-MM-DD' };
-const when = {
-  type: 'string',
-  minLength: 10,
-  maxLength: 40,
-  description: 'Thời điểm ISO 8601 có múi giờ (vd 2026-11-05T18:30:00+07:00) hoặc ngày YYYY-MM-DD',
-};
+const when = { type: 'string', minLength: 10, maxLength: 40, description: 'Thời điểm ISO 8601 có múi giờ hoặc ngày YYYY-MM-DD' };
 const useWithin = {
-  type: 'string',
-  minLength: 1,
-  maxLength: 40,
-  description: 'Hạn sử dụng: ISO 8601 có múi giờ, ngày YYYY-MM-DD (hết hạn cuối ngày) hoặc số ngày kể từ hôm nay, vd "3"',
+  type: 'string', minLength: 1, maxLength: 40,
+  description: 'Hạn sử dụng: ngày YYYY-MM-DD (hết hạn cuối ngày), ISO 8601 có múi giờ, hoặc số ngày kể từ hôm nay, vd "3"',
 };
 const meal = { type: 'string', enum: ['sáng', 'trưa', 'tối'] };
 const location = { type: 'string', enum: ['cool', 'freezer', 'other'], description: 'cool = ngăn mát, freezer = ngăn đông, other = khác' };
-const ref = (description) => ({
-  anyOf: [{ type: 'integer', minimum: 1 }, { type: 'string', pattern: '^\\$action:\\d+\\.[A-Za-z]+$' }],
-  description: `${description}. Có thể là "$action:<actionId>.<trường>" để dùng kết quả của hành động đang chờ xác nhận`,
-});
 const note = { type: 'string', maxLength: 500 };
+const taskList = (max = 30) => ({ type: 'array', minItems: 1, maxItems: max, items: obj({ foodName: str(), quantity: qty }, ['foodName', 'quantity']) });
 
-// ---------- Rút gọn dữ liệu trả cho LLM (bớt token, không lộ trường thừa) ----------
+// ---------- Rút gọn dữ liệu trả cho LLM (không id) ----------
 const cFridge = (i) => ({
-  itemId: i.id, food: i.food.name, quantity: i.quantity, unit: i.food.unit.name, category: i.food.category.name,
-  useWithin: i.useWithin, daysLeft: i.daysLeft, status: i.status, location: i.location, note: i.note, version: i.version,
+  food: i.food.name, quantity: i.quantity, unit: i.food.unit.name, category: i.food.category.name,
+  useWithin: i.useWithin, daysLeft: i.daysLeft, status: i.status, location: i.location, note: i.note,
 });
 const cList = (l) => ({
   listId: l.id,
@@ -56,26 +52,56 @@ const cList = (l) => ({
   assignedTo: l.assignedTo?.username ?? null,
   items: l.items.map((t) => ({ itemId: t.id, food: t.food.name, quantity: t.quantity, unit: t.food.unit.name, status: t.status })),
 });
-const cPlan = (p) => ({ planId: p.id, date: p.date, meal: p.mealName, food: p.food.name, recipe: p.recipe?.name ?? null, plannedAt: p.plannedAt });
+const cPlan = (p) => ({ date: p.date, meal: p.mealName, food: p.food.name, recipe: p.recipe?.name ?? null });
 const cRecipe = (r) => ({
-  recipeId: r.id, name: r.name, description: r.description, mainFood: r.food.name, foodId: r.food.id,
+  name: r.name, description: r.description, mainFood: r.food.name,
   ingredients: (r.ingredients ?? []).map((i) => ({ food: i.food.name, quantity: i.quantity, unit: i.food.unit })),
 });
 const stripHtml = (h) => String(h ?? '').replace(/<\/(p|li|h\d)>/gi, '\n').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
 
+// ---------- Tra cứu theo tên trong phạm vi nhóm của người dùng ----------
+async function recipeIdByName(ctx, name) {
+  const groupId = requireMember(ctx, '00185');
+  const { rows } = await query(
+    `SELECT id FROM recipes WHERE group_id = $1 AND lower(btrim(name)) = lower(btrim($2)) ORDER BY updated_at DESC LIMIT 1`,
+    [groupId, name],
+  );
+  if (!rows[0]) throw new AppError('00538', { recipeName: name });
+  return rows[0].id;
+}
+
+/** Danh sách mua sắm theo tên (+ ngày nếu có). Trùng tên mà không có ngày => yêu cầu nói rõ ngày. */
+async function listIdByName(ctx, name, listDate) {
+  const groupId = requireMember(ctx, '00288');
+  const { rows } = await query(
+    `SELECT id, shopping_date FROM shopping_lists
+      WHERE group_id = $1 AND lower(btrim(name)) = lower(btrim($2)) AND ($3::date IS NULL OR shopping_date = $3::date)
+      ORDER BY shopping_date DESC, id DESC`,
+    [groupId, name, listDate ?? null],
+  );
+  if (!rows.length) throw new AppError('00283', { listName: name, hint: 'Xem tên chính xác bằng list_shopping_lists' });
+  if (rows.length > 1 && !listDate) {
+    throw new AppError('00513', { listName: name, hint: 'Có nhiều danh sách trùng tên, hãy truyền thêm listDate', dates: rows.map((r) => r.shopping_date) });
+  }
+  return rows[0].id;
+}
+
 const TOOLS = [
-  // ===================== read =====================
+  // ===================== XEM =====================
   {
     name: 'get_my_profile', risk: 'read', requires: 'user',
-    description: 'Xem hồ sơ của người dùng hiện tại (tên, username, nhóm, vai trò trong nhóm, múi giờ).',
+    description: 'Xem hồ sơ của chính người dùng (tên, username, nhóm, vai trò trong nhóm, múi giờ).',
     schema: obj({}),
     run: (ctx) => User.getMe(ctx),
-    compact: ({ user }) => ({ name: user.name, username: user.username, timezone: user.timezone, group: user.group }),
+    compact: ({ user }) => ({
+      name: user.name, username: user.username, timezone: user.timezone,
+      group: user.group ? { name: user.group.name, role: user.group.role === 'admin' ? 'trưởng nhóm' : 'thành viên' } : null,
+    }),
     summary: () => 'Xem hồ sơ',
   },
   {
     name: 'get_group_members', risk: 'read', requires: 'member',
-    description: 'Xem nhóm gia đình và danh sách thành viên (tên, username, vai trò).',
+    description: 'Xem nhóm gia đình của người dùng và danh sách thành viên (tên, username, vai trò).',
     schema: obj({}),
     run: (ctx) => Group.getGroup(ctx),
     compact: ({ group, myRole }) => ({
@@ -85,7 +111,7 @@ const TOOLS = [
   },
   {
     name: 'list_categories', risk: 'read', requires: 'user',
-    description: 'Danh sách danh mục thực phẩm dùng chung (thịt, rau củ, ...).',
+    description: 'Danh mục thực phẩm dùng chung (thịt, rau củ, ...).',
     schema: obj({}),
     run: () => CategoryService.list(),
     compact: (d) => d.categories.map((c) => c.name),
@@ -93,7 +119,7 @@ const TOOLS = [
   },
   {
     name: 'list_units', risk: 'read', requires: 'user',
-    description: 'Danh sách đơn vị đo dùng chung (kg, g, quả, bó, ...).',
+    description: 'Đơn vị đo dùng chung (kg, g, quả, bó, ...).',
     schema: obj({}),
     run: () => UnitService.list(),
     compact: (d) => d.units.map((u) => u.name),
@@ -101,15 +127,15 @@ const TOOLS = [
   },
   {
     name: 'list_foods', risk: 'read', requires: 'member',
-    description: 'Danh sách thực phẩm đã khai báo của nhóm (tìm theo từ khóa). Dùng để biết tên chính xác trước khi thêm vào tủ lạnh/danh sách mua.',
+    description: 'Thực phẩm đã khai báo của gia đình (tìm theo từ khóa). Dùng để biết tên chính xác trước khi thêm vào tủ lạnh/danh sách mua.',
     schema: obj({ keyword: { type: 'string', maxLength: 100 } }),
     run: (ctx, a) => Food.listFoods(ctx, { q: a.keyword, limit: 50 }),
-    compact: (d) => ({ total: d.total, foods: d.foods.map((f) => ({ foodId: f.id, name: f.name, category: f.category.name, unit: f.unit.name })) }),
+    compact: (d) => ({ total: d.total, foods: d.foods.map((f) => ({ name: f.name, category: f.category.name, unit: f.unit.name })) }),
     summary: (a) => (a.keyword ? `Tìm thực phẩm "${a.keyword}"` : 'Xem danh sách thực phẩm'),
   },
   {
     name: 'list_fridge_items', risk: 'read', requires: 'member',
-    description: 'Toàn bộ thực phẩm đang có trong tủ lạnh của nhóm, sắp xếp theo hạn dùng.',
+    description: 'Toàn bộ thực phẩm đang có trong tủ lạnh, sắp xếp theo hạn dùng.',
     schema: obj({}),
     run: (ctx) => Fridge.listItems(ctx, { limit: 50 }),
     compact: (d) => ({ summary: d.summary, items: d.items.map(cFridge) }),
@@ -117,7 +143,7 @@ const TOOLS = [
   },
   {
     name: 'get_fridge_item', risk: 'read', requires: 'member',
-    description: 'Chi tiết mục tủ lạnh của một thực phẩm theo tên.',
+    description: 'Thông tin trong tủ lạnh của một thực phẩm theo tên.',
     schema: obj({ foodName: str() }, ['foodName']),
     run: (ctx, a) => Fridge.getByFoodName(ctx, a.foodName),
     compact: (d) => cFridge(d.item),
@@ -125,7 +151,7 @@ const TOOLS = [
   },
   {
     name: 'find_expiring_items', risk: 'read', requires: 'member',
-    description: 'Các thực phẩm trong tủ lạnh sẽ hết hạn trong vòng withinDays ngày tới (gồm cả đã quá hạn).',
+    description: 'Thực phẩm trong tủ lạnh sẽ hết hạn trong withinDays ngày tới (gồm cả đã quá hạn).',
     schema: obj({ withinDays: { type: 'integer', minimum: 1, maximum: 30 } }, ['withinDays']),
     run: (ctx, a) => Fridge.listItems(ctx, { expiringDays: a.withinDays, limit: 50 }),
     compact: (d) => d.items.map(cFridge),
@@ -133,7 +159,7 @@ const TOOLS = [
   },
   {
     name: 'list_shopping_lists', risk: 'read', requires: 'member',
-    description: 'Các danh sách mua sắm gần đây của nhóm kèm nhiệm vụ. status: open (còn món chưa mua) hoặc done.',
+    description: 'Các danh sách mua sắm gần đây kèm món cần mua. status: open (còn món chưa mua) hoặc done.',
     schema: obj({ status: { type: 'string', enum: ['open', 'done'] }, fromDate: date }),
     run: (ctx, a) => Shopping.listLists(ctx, { status: a.status, from: a.fromDate, limit: 10 }),
     compact: (d) => d.lists.map(cList),
@@ -152,24 +178,37 @@ const TOOLS = [
     description: 'Đối chiếu nguyên liệu cần cho các bữa của một ngày với tủ lạnh: cần gì, đang có, còn thiếu.',
     schema: obj({ date }, ['date']),
     run: (ctx, a) => Meal.checkIngredients(ctx, { date: a.date }),
-    compact: (d) => ({ plans: d.plans.map(cPlan), ingredients: d.ingredients }),
+    compact: (d) => ({
+      plans: d.plans.map(cPlan),
+      ingredients: d.ingredients.map((i) => ({
+        food: i.food.name, unit: i.food.unit, required: i.requiredQuantity, available: i.availableQuantity, missing: i.missingQuantity, enough: i.enough,
+      })),
+    }),
     summary: (a) => `Kiểm tra nguyên liệu ngày ${a.date}`,
   },
   {
     name: 'get_recipes', risk: 'read', requires: 'member',
-    description: 'Tìm công thức của nhóm theo foodId (nguyên liệu) hoặc từ khóa.',
-    schema: obj({ foodId: id(), keyword: { type: 'string', maxLength: 100 } }),
-    run: (ctx, a) => Recipe.listRecipes(ctx, { foodId: a.foodId, q: a.keyword, limit: 20 }),
+    description: 'Tìm công thức của gia đình theo tên thực phẩm (nguyên liệu) hoặc từ khóa.',
+    schema: obj({ foodName: str(), keyword: { type: 'string', maxLength: 100 } }),
+    run: async (ctx, a) => {
+      let foodId;
+      if (a.foodName) {
+        const food = await findFoodByName(null, requireMember(ctx, '00185'), a.foodName);
+        if (!food) return { code: '00378', data: { recipes: [] } };
+        foodId = food.id;
+      }
+      return Recipe.listRecipes(ctx, { foodId, q: a.keyword, limit: 20 });
+    },
     compact: (d) => d.recipes.map(cRecipe),
     summary: () => 'Tìm công thức',
   },
   {
     name: 'get_recipe_detail', risk: 'read', requires: 'member',
-    description: 'Nội dung đầy đủ (cách nấu) của một công thức.',
-    schema: obj({ recipeId: id() }, ['recipeId']),
-    run: (ctx, a) => Recipe.getRecipe(ctx, a.recipeId),
+    description: 'Nội dung đầy đủ (cách nấu) của một công thức theo tên.',
+    schema: obj({ recipeName: str() }, ['recipeName']),
+    run: async (ctx, a) => Recipe.getRecipe(ctx, await recipeIdByName(ctx, a.recipeName)),
     compact: (d) => ({ ...cRecipe(d.recipe), instructions: stripHtml(d.recipe.htmlContent).slice(0, 4000) }),
-    summary: (a) => `Xem công thức #${a.recipeId}`,
+    summary: (a) => `Xem công thức "${a.recipeName}"`,
   },
   {
     name: 'suggest_recipes', risk: 'read', requires: 'member',
@@ -177,61 +216,36 @@ const TOOLS = [
     schema: obj({ onlyCookable: { type: 'boolean' } }),
     run: (ctx, a) => Recipe.suggestRecipes(ctx, { onlyCookable: a.onlyCookable ? 'true' : undefined, limit: 10 }),
     compact: (d) => d.suggestions.map((s) => ({
-      recipeId: s.recipe.id, name: s.recipe.name, canCook: s.canCook, expiringIngredients: s.expiringIngredients,
+      name: s.recipe.name, canCook: s.canCook, expiringIngredients: s.expiringIngredients,
       missing: s.missing.map((m) => ({ food: m.food.name, missingQuantity: m.missingQuantity, unit: m.food.unit })),
     })),
     summary: () => 'Gợi ý món từ tủ lạnh',
   },
   {
-    name: 'read_attachment', risk: 'read', requires: 'user',
-    description: 'Xem lại một ảnh người dùng đã gửi trước đó trong cuộc hội thoại (hóa đơn, ảnh tủ lạnh, món ăn).',
-    schema: obj({ attachmentId: id() }, ['attachmentId']),
-    special: 'attachment',
-    summary: (a) => `Xem ảnh đính kèm #${a.attachmentId}`,
+    name: 'get_stats', risk: 'read', requires: 'member',
+    description: 'Thống kê mua sắm và tiêu thụ/bỏ đi trong khoảng ngày (mặc định 30 ngày gần nhất).',
+    schema: obj({ fromDate: date, toDate: date }),
+    run: (ctx, a) => Stats.summary(ctx, { from: a.fromDate, to: a.toDate }),
+    compact: (d) => ({ from: d.from, to: d.to, totals: d.totals, wasteRate: d.wasteRate, shopping: d.shopping, byFood: d.byFood.slice(0, 30) }),
+    summary: () => 'Xem thống kê',
   },
 
-  // ===================== write =====================
+  // ===================== TẠO =====================
   {
     name: 'create_food', risk: 'write', requires: 'member',
-    description: 'Khai báo thực phẩm mới cho nhóm (tên duy nhất trong nhóm, danh mục và đơn vị phải có sẵn).',
+    description: 'Khai báo thực phẩm mới cho gia đình (tên chưa trùng; danh mục và đơn vị phải có trong list_categories / list_units).',
     schema: obj({ name: str(), foodCategoryName: str(100), unitName: str(100) }, ['name', 'foodCategoryName', 'unitName']),
     run: (ctx, a) => Food.createFood(ctx, a),
-    compact: (d) => ({ foodId: d.food.id, name: d.food.name }),
-    refs: (d) => ({ foodId: d.food.id }),
+    compact: (d) => ({ name: d.food.name, category: d.food.category.name, unit: d.food.unit.name }),
     summary: (a) => `Thêm thực phẩm "${a.name}" (${a.foodCategoryName}, ${a.unitName})`,
   },
   {
-    name: 'update_food', risk: 'write', requires: 'leader',
-    description: 'Sửa tên/danh mục/đơn vị của thực phẩm (chỉ trưởng nhóm).',
-    schema: obj({ name: str(), newName: str(), newCategory: str(100), newUnit: str(100) }, ['name']),
-    run: (ctx, a) => Food.updateFood(ctx, a),
-    compact: (d) => ({ foodId: d.food.id, name: d.food.name }),
-    summary: (a) => `Sửa thực phẩm "${a.name}"`,
-  },
-  {
     name: 'create_fridge_item', risk: 'write', requires: 'member',
-    description: 'Thêm một thực phẩm của nhóm vào tủ lạnh. Mỗi thực phẩm chỉ có một mục; nếu đã có thì dùng update_fridge_item.',
+    description: 'Thêm một thực phẩm đã khai báo vào tủ lạnh. Mỗi thực phẩm chỉ có một mục; nếu đã có thì báo người dùng tự sửa số lượng trong ứng dụng.',
     schema: obj({ foodName: str(), quantity: qty, useWithin, note, location }, ['foodName', 'quantity', 'useWithin']),
     run: (ctx, a) => Fridge.createItem(ctx, a),
     compact: (d) => cFridge(d.item),
-    refs: (d) => ({ itemId: d.item.id }),
     summary: (a) => `Thêm ${a.quantity} ${a.foodName} vào tủ lạnh, hạn ${a.useWithin}`,
-  },
-  {
-    name: 'update_fridge_item', risk: 'write', requires: 'member',
-    description: 'Cập nhật số lượng/hạn dùng/ghi chú/vị trí của một mục tủ lạnh.',
-    schema: obj({ itemId: id(), newQuantity: qty, newUseWithin: useWithin, newNote: note, newFoodName: str(), newLocation: location }, ['itemId']),
-    run: (ctx, a) => Fridge.updateItem(ctx, a),
-    compact: (d) => cFridge(d.item),
-    summary: (a) => `Cập nhật mục tủ lạnh #${a.itemId}`,
-  },
-  {
-    name: 'record_consumption', risk: 'write', requires: 'member',
-    description: 'Ghi nhận đã dùng (consume) hoặc bỏ đi (discard) một lượng thực phẩm trong tủ lạnh; trừ tồn kho.',
-    schema: obj({ itemId: id(), quantity: qty, type: { type: 'string', enum: ['consume', 'discard'] }, note }, ['itemId', 'quantity', 'type']),
-    run: (ctx, a) => Fridge.consumeItem(ctx, a),
-    compact: (d) => ({ remaining: d.remaining, depleted: d.depleted }),
-    summary: (a) => `${a.type === 'discard' ? 'Bỏ' : 'Dùng'} ${a.quantity} từ mục tủ lạnh #${a.itemId}`,
   },
   {
     name: 'create_shopping_list', risk: 'write', requires: 'leader',
@@ -274,24 +288,20 @@ const TOOLS = [
   },
   {
     name: 'create_meal_plan', risk: 'write', requires: 'leader',
-    description: 'Lên kế hoạch bữa ăn (sáng/trưa/tối) với một thực phẩm/món, có thể gắn công thức. Không tự trừ tồn kho.',
-    schema: obj({ foodName: str(), recipeId: ref('ID công thức'), timestamp: when, name: meal }, ['timestamp', 'name']),
-    run: (ctx, a) => Meal.createPlan(ctx, a),
+    description: 'Lên kế hoạch bữa ăn (sáng/trưa/tối) bằng tên thực phẩm hoặc tên công thức. Không tự trừ tồn kho. Chỉ trưởng nhóm.',
+    schema: obj({ foodName: str(), recipeName: str(), timestamp: when, name: meal }, ['timestamp', 'name']),
+    run: async (ctx, a) => Meal.createPlan(ctx, {
+      foodName: a.foodName,
+      recipeId: a.recipeName ? await recipeIdByName(ctx, a.recipeName) : undefined,
+      timestamp: a.timestamp,
+      name: a.name,
+    }),
     compact: (d) => cPlan(d.plan),
-    refs: (d) => ({ planId: d.plan.id }),
-    summary: (a) => `Lên bữa ${a.name} ${String(a.timestamp).slice(0, 10)}: ${a.foodName ?? `công thức #${a.recipeId}`}`,
-  },
-  {
-    name: 'update_meal_plan', risk: 'write', requires: 'leader',
-    description: 'Sửa kế hoạch bữa ăn (món, thời điểm, bữa, công thức).',
-    schema: obj({ planId: id(), newFoodName: str(), newTimestamp: when, newName: meal, newRecipeId: id() }, ['planId']),
-    run: (ctx, a) => Meal.updatePlan(ctx, a),
-    compact: (d) => cPlan(d.plan),
-    summary: (a) => `Sửa kế hoạch bữa ăn #${a.planId}`,
+    summary: (a) => `Lên bữa ${a.name} ${String(a.timestamp).slice(0, 10)}: ${a.recipeName ?? a.foodName}`,
   },
   {
     name: 'create_recipe', risk: 'write', requires: 'member',
-    description: 'Lưu công thức nấu ăn: nguyên liệu chính (foodName), tên, mô tả, cách làm (HTML đơn giản) và nguyên liệu phụ.',
+    description: 'Lưu công thức: nguyên liệu chính (foodName), tên, mô tả, cách làm (HTML đơn giản, mỗi bước một <p>) và nguyên liệu phụ.',
     schema: obj(
       {
         foodName: str(), name: str(), description: str(2000), htmlContent: str(20000),
@@ -301,7 +311,6 @@ const TOOLS = [
     ),
     run: (ctx, a) => Recipe.createRecipe(ctx, a),
     compact: (d) => cRecipe(d.recipe),
-    refs: (d) => ({ recipeId: d.recipe.id }),
     summary: (a) => `Lưu công thức "${a.name}"`,
   },
   {
@@ -377,20 +386,36 @@ const BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
 export const getTool = (name) => BY_NAME.get(name) ?? null;
 export const allTools = () => TOOLS;
 
-/** Có đủ quyền vai trò cho công cụ không (Service vẫn kiểm tra lại khi thực thi). */
+/** Phiên bản bộ công cụ: hội thoại tạo với bộ cũ không tiếp tục được (lịch sử gọi công cụ cũ). */
+export const TOOLSET_VERSION = 2;
+
 export function roleAllows(tool, ctx) {
   if (tool.requires === 'user') return true;
   if (!ctx.groupId) return false;
   return tool.requires === 'member' || ctx.groupRole === 'admin';
 }
 
+/** Khóa nội bộ không bao giờ gửi cho LLM. */
+const HIDDEN_KEY = /^(id|version|imageUrl|sessionId)$|Ids?$/;
+
+/** Lọc đệ quy mọi khóa id / ...Id khỏi dữ liệu trước khi gửi cho LLM (lớp bảo vệ thứ hai sau compact). */
+export function stripHidden(v) {
+  if (Array.isArray(v)) return v.map(stripHidden);
+  if (v && typeof v === 'object' && !(v instanceof Date)) {
+    const out = {};
+    for (const [k, val] of Object.entries(v)) if (!HIDDEN_KEY.test(k)) out[k] = stripHidden(val);
+    return out;
+  }
+  return v;
+}
+
 /**
- * Định nghĩa gửi cho LLM. Danh sách CỐ ĐỊNH, thứ tự cố định cho mọi người dùng để giữ prompt cache
- * và tính hợp lệ của thinking block qua các lượt; quyền được Guard + Service kiểm tra khi thực thi.
+ * Định nghĩa gửi cho LLM: cố định, thứ tự cố định cho mọi người dùng (giữ prompt cache);
+ * quyền được Guard + Service kiểm tra khi thực thi.
  */
 export const llmToolDefinitions = TOOLS.map((t) => ({
   name: t.name,
-  description: `${t.description} [${t.risk === 'read' ? 'đọc' : t.risk === 'write' ? 'ghi' : 'xóa - luôn cần xác nhận'}]`,
+  description: `${t.description} [${t.risk === 'read' ? 'xem' : 'tạo'}]`,
   input_schema: t.schema,
   eager_input_streaming: true,
 }));

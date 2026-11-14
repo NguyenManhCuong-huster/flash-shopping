@@ -45,6 +45,15 @@ services:
     volumes:
       - uploads:/app/uploads
 
+  # Bản web (React build + Nginx). /api/* được chuyển tới service api.
+  web:
+    build: ../Web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_HOST_PORT:-8081}:80"
+
 volumes:
   pgdata:
   uploads:

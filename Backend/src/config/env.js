@@ -40,7 +40,8 @@ export const env = {
     model: process.env.AI_MODEL || 'claude-opus-5-5',
     effort: process.env.AI_EFFORT || 'medium',
     apiKey: process.env.AI_API_KEY || '',
-    baseUrl: process.env.AI_BASE_URL || undefined,
+    // openrouter: dùng endpoint tương thích Anthropic Messages của OpenRouter
+    baseUrl: process.env.AI_BASE_URL || (process.env.AI_PROVIDER === 'openrouter' ? 'https://openrouter.ai/api' : undefined),
     maxToolCalls: int(process.env.AI_MAX_TOOL_CALLS, 8),
     turnTimeoutMs: int(process.env.AI_TURN_TIMEOUT_SECONDS, 60) * 1000,
   },
