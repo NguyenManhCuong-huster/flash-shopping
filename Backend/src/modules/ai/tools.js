@@ -36,6 +36,8 @@ const useWithin = {
 const meal = { type: 'string', enum: ['sáng', 'trưa', 'tối'] };
 const location = { type: 'string', enum: ['cool', 'freezer', 'other'], description: 'cool = ngăn mát, freezer = ngăn đông, other = khác' };
 const note = { type: 'string', maxLength: 500 };
+const id = () => ({ type: 'integer', minimum: 1 });
+const ref = (description) => ({ type: 'integer', minimum: 1, description });
 const taskList = (max = 30) => ({ type: 'array', minItems: 1, maxItems: max, items: obj({ foodName: str(), quantity: qty }, ['foodName', 'quantity']) });
 
 // ---------- Rút gọn dữ liệu trả cho LLM (không id) ----------
@@ -43,9 +45,14 @@ const cFridge = (i) => ({
   food: i.food.name, quantity: i.quantity, unit: i.food.unit.name, category: i.food.category.name,
   useWithin: i.useWithin, daysLeft: i.daysLeft, status: i.status, location: i.location, note: i.note,
 });
-const cList = (l) => ({
-  name: l.name, date: l.date, note: l.note, assignedTo: l.assignedTo?.username ?? null,
-  tasks: l.tasks.map((t) => ({ food: t.food.name, quantity: t.quantity, unit: t.food.unit.name, status: t.status })),
+const cShoppingSession = (ss) => ({
+  sessionId: ss.id,
+  name: ss.name,
+  createdAt: ss.createdAt,
+  completedAt: ss.completedAt,
+  note: ss.note,
+  assignedTo: ss.assignedTo?.username ?? null,
+  items: ss.items.map((t) => ({ itemId: t.id, food: t.food.name, quantity: t.quantity, unit: t.food.unit.name, status: t.status })),
 });
 const cPlan = (p) => ({ date: p.date, meal: p.mealName, food: p.food.name, recipe: p.recipe?.name ?? null });
 const cRecipe = (r) => ({
@@ -65,18 +72,18 @@ async function recipeIdByName(ctx, name) {
   return rows[0].id;
 }
 
-/** Danh sách mua sắm theo tên (+ ngày nếu có). Trùng tên mà không có ngày => yêu cầu nói rõ ngày. */
-async function listIdByName(ctx, name, listDate) {
+/** Phiên mua sắm theo tên (+ ngày nếu có). Trùng tên mà không có ngày => yêu cầu nói rõ ngày. */
+async function sessionIdByName(ctx, name, sessionDate) {
   const groupId = requireMember(ctx, '00288');
   const { rows } = await query(
-    `SELECT id, shopping_date FROM shopping_lists
+    `SELECT id, shopping_date FROM shopping_sessions
       WHERE group_id = $1 AND lower(btrim(name)) = lower(btrim($2)) AND ($3::date IS NULL OR shopping_date = $3::date)
       ORDER BY shopping_date DESC, id DESC`,
-    [groupId, name, listDate ?? null],
+    [groupId, name, sessionDate ?? null],
   );
-  if (!rows.length) throw new AppError('00283', { listName: name, hint: 'Xem tên chính xác bằng list_shopping_lists' });
-  if (rows.length > 1 && !listDate) {
-    throw new AppError('00513', { listName: name, hint: 'Có nhiều danh sách trùng tên, hãy truyền thêm listDate', dates: rows.map((r) => r.shopping_date) });
+  if (!rows.length) throw new AppError('00283', { sessionName: name, hint: 'Xem tên chính xác bằng list_shopping_sessions' });
+  if (rows.length > 1 && !sessionDate) {
+    throw new AppError('00513', { sessionName: name, hint: 'Có nhiều danh sách trùng tên, hãy truyền thêm sessionDate', dates: rows.map((r) => r.shopping_date) });
   }
   return rows[0].id;
 }
@@ -153,12 +160,12 @@ const TOOLS = [
     summary: (a) => `Tìm đồ sắp hết hạn trong ${a.withinDays} ngày`,
   },
   {
-    name: 'list_shopping_lists', risk: 'read', requires: 'member',
-    description: 'Các danh sách mua sắm gần đây kèm món cần mua. status: open (còn món chưa mua) hoặc done.',
+    name: 'list_shopping_sessions', risk: 'read', requires: 'member',
+    description: 'Các phiên mua sắm gần đây kèm món cần mua. status: open (còn món chưa mua) hoặc done.',
     schema: obj({ status: { type: 'string', enum: ['open', 'done'] }, fromDate: date }),
-    run: (ctx, a) => Shopping.listLists(ctx, { status: a.status, from: a.fromDate, limit: 10 }),
-    compact: (d) => d.lists.map(cList),
-    summary: () => 'Xem danh sách mua sắm',
+    run: (ctx, a) => Shopping.listShoppingSessions(ctx, { status: a.status, from: a.fromDate, limit: 10 }),
+    compact: (d) => d.sessions.map(cShoppingSession),
+    summary: () => 'Xem phiên mua sắm',
   },
   {
     name: 'get_meal_plans', risk: 'read', requires: 'member',
@@ -243,32 +250,43 @@ const TOOLS = [
     summary: (a) => `Thêm ${a.quantity} ${a.foodName} vào tủ lạnh, hạn ${a.useWithin}`,
   },
   {
-    name: 'create_shopping_list', risk: 'write', requires: 'leader',
-    description: 'Tạo danh sách mua sắm cho một ngày, có thể giao cho thành viên (username) và kèm luôn các món cần mua. Chỉ trưởng nhóm.',
-    schema: obj({ name: str(), date, assignToUsername: str(14), note, tasks: taskList() }, ['name', 'date']),
-    run: async (ctx, a) => {
-      const created = await Shopping.createList(ctx, { name: a.name, date: a.date, assignToUsername: a.assignToUsername, note: a.note });
-      if (!a.tasks?.length) return created;
-      try {
-        const t = await Shopping.createTasks(ctx, { listId: created.data.listId, tasks: a.tasks });
-        return { code: t.code, data: { list: t.data.list, failed: t.data.failed } };
-      } catch (err) {
-        // Danh sách đã tạo; báo rõ món nào chưa thêm được (UC03 - 5a)
-        if (err instanceof AppError) return { code: '00507', data: { list: created.data.list, failed: err.data?.failed ?? [{ message: err.message }] } };
-        throw err;
-      }
-    },
-    compact: (d) => ({ ...cList(d.list), failed: (d.failed ?? []).map((f) => ({ foodName: f.foodName, message: f.message })) }),
-    summary: (a) => `Tạo danh sách "${a.name}" ngày ${a.date}${a.assignToUsername ? ` giao cho ${a.assignToUsername}` : ''}`
-      + (a.tasks?.length ? `: ${a.tasks.map((t) => `${t.foodName} ${t.quantity}`).join(', ')}` : ''),
+    name: 'create_shopping_session', risk: 'write', requires: 'leader',
+    description: 'Tạo danh sách mua sắm, có thể giao cho thành viên cùng nhóm (theo username). Chỉ trưởng nhóm.',
+    schema: obj({ name: str(), assignToUsername: str(14), note }, ['name']),
+    run: (ctx, a) => Shopping.createList(ctx, a),
+    compact: (d) => cShoppingSession(d.session),
+    refs: (d) => ({ sessionId: d.sessionId }),
+    summary: (a) => `Tạo danh sách "${a.name}"${a.assignToUsername ? ` giao cho ${a.assignToUsername}` : ''}`,
   },
   {
-    name: 'add_shopping_tasks', risk: 'write', requires: 'leader',
-    description: 'Thêm món cần mua vào một danh sách CÓ SẴN, chỉ định bằng tên danh sách (thêm listDate nếu trùng tên). Chỉ trưởng nhóm.',
-    schema: obj({ listName: str(), listDate: date, tasks: taskList() }, ['listName', 'tasks']),
-    run: async (ctx, a) => Shopping.createTasks(ctx, { listId: await listIdByName(ctx, a.listName, a.listDate), tasks: a.tasks }),
-    compact: (d) => ({ ...cList(d.list), failed: d.failed.map((f) => ({ foodName: f.foodName, message: f.message })) }),
-    summary: (a) => `Thêm vào "${a.listName}": ${a.tasks.map((t) => `${t.foodName} ${t.quantity}`).join(', ')}`.slice(0, 300),
+    name: 'update_shopping_session', risk: 'write', requires: 'leader',
+    description: 'Sửa danh sách mua sắm (tên, người được giao, ghi chú). newAssignToUsername rỗng để bỏ giao.',
+    schema: obj({ sessionId: id(), newName: str(), newAssignToUsername: { type: 'string', maxLength: 14 }, newNote: note }, ['sessionId']),
+    run: (ctx, a) => Shopping.updateList(ctx, a),
+    compact: (d) => cShoppingSession(d.session),
+    summary: (a) => `Sửa danh sách mua sắm #${a.sessionId}`,
+  },
+  {
+    name: 'add_shopping_items', risk: 'write', requires: 'leader',
+    description: 'Thêm các món cần mua (tên thực phẩm đã khai báo + số lượng) vào một danh sách mua sắm.',
+    schema: obj(
+      {
+        sessionId: ref('ID danh sách mua sắm'),
+        items: { type: 'array', minItems: 1, maxItems: 30, items: obj({ foodName: str(), quantity: qty }, ['foodName', 'quantity']) },
+      },
+      ['sessionId', 'items'],
+    ),
+    run: (ctx, a) => Shopping.createItem(ctx, a),
+    compact: (d) => ({ created: d.created, failed: d.failed }),
+    summary: (a) => `Thêm ${a.items.length} món: ${a.items.map((t) => `${t.foodName} ${t.quantity}`).join(', ')}`.slice(0, 300),
+  },
+  {
+    name: 'update_shopping_item', risk: 'write', requires: 'leader',
+    description: 'Sửa thực phẩm hoặc số lượng của một mặt hàng mua sắm (chưa mua).',
+    schema: obj({ itemId: id(), newFoodName: str(), newQuantity: qty }, ['itemId']),
+    run: (ctx, a) => Shopping.updateItem(ctx, a),
+    compact: (d) => ({ itemId: d.item.id, food: d.item.food.name, quantity: d.item.quantity }),
+    summary: (a) => `Sửa mặt hàng mua #${a.itemId}`,
   },
   {
     name: 'create_meal_plan', risk: 'write', requires: 'leader',
@@ -296,6 +314,73 @@ const TOOLS = [
     run: (ctx, a) => Recipe.createRecipe(ctx, a),
     compact: (d) => cRecipe(d.recipe),
     summary: (a) => `Lưu công thức "${a.name}"`,
+  },
+  {
+    name: 'update_recipe', risk: 'write', requires: 'member',
+    description: 'Sửa công thức (người tạo hoặc trưởng nhóm).',
+    schema: obj({ recipeId: id(), newName: str(), newDescription: str(2000), newHtmlContent: str(20000), newFoodName: str() }, ['recipeId']),
+    run: (ctx, a) => Recipe.updateRecipe(ctx, a),
+    compact: (d) => cRecipe(d.recipe),
+    summary: (a) => `Sửa công thức #${a.recipeId}`,
+  },
+  {
+    name: 'add_group_member', risk: 'write', requires: 'leader',
+    description: 'Thêm người dùng vào nhóm theo username (chỉ trưởng nhóm).',
+    schema: obj({ username: str(14) }, ['username']),
+    run: (ctx, a) => Group.addMember(ctx, a),
+    compact: () => ({ ok: true }),
+    summary: (a) => `Thêm ${a.username} vào nhóm`,
+  },
+
+  // ===================== destructive (luôn cần xác nhận) =====================
+  {
+    name: 'delete_food', risk: 'destructive', requires: 'leader',
+    description: 'Xóa thực phẩm (kèm mục tủ lạnh, mặt hàng mua sắm, kế hoạch, công thức liên quan).',
+    schema: obj({ name: str() }, ['name']),
+    run: (ctx, a) => Food.deleteFood(ctx, a),
+    summary: (a) => `Xóa thực phẩm "${a.name}"`,
+  },
+  {
+    name: 'delete_fridge_item', risk: 'destructive', requires: 'member',
+    description: 'Xóa mục tủ lạnh của một thực phẩm.',
+    schema: obj({ foodName: str() }, ['foodName']),
+    run: (ctx, a) => Fridge.deleteItem(ctx, a),
+    summary: (a) => `Xóa ${a.foodName} khỏi tủ lạnh`,
+  },
+  {
+    name: 'delete_shopping_session', risk: 'destructive', requires: 'leader',
+    description: 'Xóa danh sách mua sắm.',
+    schema: obj({ sessionId: id() }, ['sessionId']),
+    run: (ctx, a) => Shopping.deleteList(ctx, a),
+    summary: (a) => `Xóa danh sách mua sắm #${a.sessionId}`,
+  },
+  {
+    name: 'delete_shopping_item', risk: 'destructive', requires: 'leader',
+    description: 'Xóa một mặt hàng mua sắm.',
+    schema: obj({ itemId: id() }, ['itemId']),
+    run: (ctx, a) => Shopping.deleteItem(ctx, a),
+    summary: (a) => `Xóa mặt hàng mua #${a.itemId}`,
+  },
+  {
+    name: 'delete_meal_plan', risk: 'destructive', requires: 'leader',
+    description: 'Xóa kế hoạch bữa ăn.',
+    schema: obj({ planId: id() }, ['planId']),
+    run: (ctx, a) => Meal.deletePlan(ctx, a),
+    summary: (a) => `Xóa kế hoạch bữa ăn #${a.planId}`,
+  },
+  {
+    name: 'delete_recipe', risk: 'destructive', requires: 'member',
+    description: 'Xóa công thức (người tạo hoặc trưởng nhóm).',
+    schema: obj({ recipeId: id() }, ['recipeId']),
+    run: (ctx, a) => Recipe.deleteRecipe(ctx, a),
+    summary: (a) => `Xóa công thức #${a.recipeId}`,
+  },
+  {
+    name: 'remove_group_member', risk: 'destructive', requires: 'leader',
+    description: 'Xóa thành viên khỏi nhóm theo username (chỉ trưởng nhóm).',
+    schema: obj({ username: str(14) }, ['username']),
+    run: (ctx, a) => Group.removeMember(ctx, a),
+    summary: (a) => `Xóa ${a.username} khỏi nhóm`,
   },
 ];
 

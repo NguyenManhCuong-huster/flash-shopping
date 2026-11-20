@@ -69,7 +69,7 @@ async function recordUsage(ctx, usage) {
 export async function getUsage(ctx, q = {}) {
   const to = isPresent(q.to) ? isoDate(q.to) : localDate(new Date(), ctx.timezone);
   const from = isPresent(q.from) ? isoDate(q.from) : to;
-  ensure(from && to && from <= to, '00541');
+  ensure(from && to && from <= to, '00108');
   const { rows } = await query(
     `SELECT to_char(usage_date, 'YYYY-MM-DD') AS date, request_count, input_tokens, output_tokens FROM ai_usage_daily
       WHERE user_id = $1 AND usage_date BETWEEN $2::date AND $3::date ORDER BY usage_date`,
@@ -105,7 +105,7 @@ async function createConversationRow(ctx, title = DEFAULT_TITLE) {
 /** POST ai/conversation/ {title?} */
 export async function createConversation(ctx, body = {}) {
   const title = isPresent(body.title) ? cleanString(body.title, { max: 150 }) : DEFAULT_TITLE;
-  ensure(title, '00025');
+  ensure(title, '00005');
   return result('00404', { conversation: convDto(await createConversationRow(ctx, title)) });
 }
 
@@ -149,14 +149,14 @@ export async function getConversation(ctx, rawId, q = {}) {
   );
   const messages = rows.reverse().map(displayMessage).filter((m) => m.text || m.attachmentIds?.length);
   const actions = (await query('SELECT * FROM ai_actions WHERE conversation_id = $1 ORDER BY id', [c.id])).rows.map(toActionDto);
-  return result('00406', { conversation: convDto(c), messages, actions, hasMore: rows.length === limit });
+  return result('00405', { conversation: convDto(c), messages, actions, hasMore: rows.length === limit });
 }
 
 /** PUT ai/conversation/ {conversationId, newTitle} */
 export async function renameConversation(ctx, body = {}) {
   const c = await ownConversation(ctx, body.conversationId);
   const title = cleanString(body.newTitle, { max: 150 });
-  ensure(title, '00025');
+  ensure(title, '00005');
   const { rows } = await query('UPDATE ai_conversations SET title = $2, updated_at = now() WHERE id = $1 RETURNING *', [c.id, title]);
   return result('00407', { conversation: convDto(rows[0]) });
 }
@@ -173,7 +173,7 @@ export async function deleteConversation(ctx, body = {}) {
 
 /** POST ai/attachment/ (multipart image) */
 export async function uploadAttachment(ctx, file) {
-  ensure(file, '00415');
+  ensure(file, '00158');
   const { rows } = await query(
     `INSERT INTO ai_attachments (user_id, file_url, mime_type, size_bytes) VALUES ($1, $2, $3, $4) RETURNING id`,
     [ctx.userId, `private/ai/${file.filename}`, file.mimetype, file.size],
@@ -366,10 +366,10 @@ export async function confirmActions(ctx, body = {}) {
       let code = '00420';
       if (cur.status === 'proposed') {
         await query(`UPDATE ai_actions SET status = 'expired' WHERE id = $1 AND status = 'proposed'`, [a.id]);
-        code = '00421';
+        code = '00420';
       }
       // Không chạy lại trong yêu cầu này (đã xử lý / hết hạn) => không tính là thành công
-      results.push({ actionId: a.id, status: code === '00421' ? 'expired' : cur.status, skipped: true, resultCode: code, message: messageOf(code) });
+      results.push({ actionId: a.id, status: code === '00420' ? 'expired' : cur.status, skipped: true, resultCode: code, message: messageOf(code) });
       continue;
     }
     if (claimed.depends_on_action_id) {

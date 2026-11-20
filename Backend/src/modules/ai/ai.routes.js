@@ -22,7 +22,7 @@ r.get('/ai/conversation/:conversationId', auth, h((req) => AI.getConversation(re
 // ===== Chat (JSON hoặc SSE) =====
 r.post('/ai/chat', auth, aiChatLimiter, (req, res) => AI.chat(req, res));
 r.post('/ai/chat/cancel', auth, h((req) => AI.cancelTurn(req.ctx, req.body)));
-r.post('/ai/attachment', auth, imageUpload('private/ai', '00415'), h((req) => AI.uploadAttachment(req.ctx, req.file)));
+r.post('/ai/attachment', auth, imageUpload('private/ai', '00158'), h((req) => AI.uploadAttachment(req.ctx, req.file)));
 
 // ===== Hành động có kiểm soát =====
 r.get('/ai/action', auth, h((req) => AI.listActions(req.ctx, req.query)));

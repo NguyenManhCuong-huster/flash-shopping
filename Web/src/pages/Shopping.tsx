@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { groupApi, shoppingApi } from '../api/endpoints';
-import type { Food, Location, ShoppingList, ShoppingTask } from '../api/types';
+import type { Food, Location, ShoppingSession as ShoppingSession, ShoppingItem } from '../api/types';
 import { LOCATIONS } from '../api/types';
 import { Async, Field, FoodPicker, Modal, NeedGroup, Pill, useAction, useConfirm, useLoad, useToast } from '../components/ui';
 import { addDays, fmtDate, isoDate, newKey, parseQty, qtyUnit, today } from '../lib/format';
@@ -14,7 +14,7 @@ export function ShoppingPage() {
   const [done, setDone] = useState(false);
   const [mine, setMine] = useState(false);
   const [creating, setCreating] = useState(false);
-  const { data, loading, error, reload } = useLoad(() => shoppingApi.lists({ status: done ? 'done' : 'open', assignedToMe: mine }), [done, mine]);
+  const { data, loading, error, reload } = useLoad(() => shoppingApi.sessions({ status: done ? 'done' : 'open', assignedToMe: mine }), [done, mine]);
   if (!s.hasGroup) return <NeedGroup />;
   return (
     <>
@@ -29,10 +29,10 @@ export function ShoppingPage() {
         </div>
         <button className={`chip ${mine ? 'on' : ''}`} onClick={() => setMine(!mine)}>Giao cho tôi</button>
       </div>
-      <Async loading={loading} error={error} empty={!data?.lists.length} onRetry={reload}
+      <Async loading={loading} error={error} empty={!data?.sessions.length} onRetry={reload}
         emptyText={s.isLeader ? 'Chưa có danh sách. Bấm "Tạo danh sách".' : 'Chưa có danh sách nào — trưởng nhóm sẽ tạo và phân công.'}>
         <div className="list">
-          {data?.lists.map((l) => (
+          {data?.sessions.map((l) => (
             <Link key={l.id} to={`/shopping/${l.id}`} className="item click" style={{ color: '#000' }}>
               <div className="grow">
                 <div className="title">{l.name} {l.assignedTo?.id === s.user?.id && <Pill tone="warn">Giao cho tôi</Pill>}</div>
@@ -52,28 +52,28 @@ export function ShoppingPage() {
 }
 
 /** Tạo/sửa danh sách (trưởng nhóm). Người được giao chỉ chọn trong thành viên cùng nhóm. */
-function ListForm({ list, onClose, onSaved }: { list?: ShoppingList; onClose: () => void; onSaved: (id: number) => void }) {
+function ListForm({ session, onClose, onSaved }: { session?: ShoppingSession; onClose: () => void; onSaved: (id: number) => void }) {
   const { run, busy } = useAction();
   const members = useLoad(() => groupApi.get().then((g) => g.group.members), []);
-  const [f, setF] = useState({ name: list?.name ?? 'Đi chợ', date: list?.date ?? isoDate(today()), assignee: list?.assignedTo?.username ?? '', note: list?.note ?? '' });
+  const [f, setF] = useState({ name: session?.name ?? 'Đi chợ', date: session?.date ?? isoDate(today()), assignee: session?.assignedTo?.username ?? '', note: session?.note ?? '' });
   const [err, setErr] = useState('');
   async function save() {
     if (!f.name.trim()) return setErr('Tên danh sách không được để trống');
-    if (list) {
-      const body: Record<string, unknown> = { listId: list.id };
-      if (f.name.trim() !== list.name) body.newName = f.name.trim();
-      if (f.date !== list.date) body.newDate = f.date;
-      if (f.assignee !== (list.assignedTo?.username ?? '')) body.newAssignToUsername = f.assignee;
-      if (f.note !== (list.note ?? '')) body.newNote = f.note;
+    if (session) {
+      const body: Record<string, unknown> = { sessionId: session.id };
+      if (f.name.trim() !== session.name) body.newName = f.name.trim();
+      if (f.date !== session.date) body.newDate = f.date;
+      if (f.assignee !== (session.assignedTo?.username ?? '')) body.newAssignToUsername = f.assignee;
+      if (f.note !== (session.note ?? '')) body.newNote = f.note;
       if (Object.keys(body).length === 1) return onClose();
-      if (await run(() => shoppingApi.update(body), 'Đã cập nhật danh sách')) onSaved(list.id);
+      if (await run(() => shoppingApi.update(body), 'Đã cập nhật danh sách')) onSaved(session.id);
     } else {
       const r = await run(() => shoppingApi.create({ name: f.name.trim(), date: f.date, assignToUsername: f.assignee || undefined, note: f.note || undefined }), 'Đã tạo danh sách. Hãy thêm món cần mua.');
-      if (r) onSaved(r.data.listId);
+      if (r) onSaved(r.data.sessionId);
     }
   }
   return (
-    <Modal title={list ? 'Sửa danh sách' : 'Tạo danh sách mua sắm'} onClose={onClose}>
+    <Modal title={session ? 'Sửa danh sách' : 'Tạo danh sách mua sắm'} onClose={onClose}>
       <div className="stack">
         <Field label="Tên danh sách" error={err}><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} autoFocus /></Field>
         <Field label="Ngày đi chợ"><input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
@@ -87,7 +87,7 @@ function ListForm({ list, onClose, onSaved }: { list?: ShoppingList; onClose: ()
       </div>
       <div className="row end">
         <button className="ghost" onClick={onClose}>Hủy</button>
-        <button onClick={save} disabled={busy}>{list ? 'Lưu' : 'Tạo và thêm món'}</button>
+        <button onClick={save} disabled={busy}>{session ? 'Lưu' : 'Tạo và thêm món'}</button>
       </div>
     </Modal>
   );
@@ -100,11 +100,11 @@ export function ShoppingDetail() {
   const confirm = useConfirm();
   const { run } = useAction();
   const [modal, setModal] = useState<'add' | 'edit' | 'buy' | null>(new URLSearchParams(location.search).get('add') ? 'add' : null);
-  const { data: l, loading, error, reload } = useLoad(() => shoppingApi.get(id), [id]);
-  const pending = l?.tasks.filter((t) => t.status === 'pending') ?? [];
-  const canBuy = !!l && (s.isLeader || l.assignedTo?.id === s.user?.id) && pending.length > 0;
+  const { data: s, loading, error, reload } = useLoad(() => shoppingApi.get(id), [id]);
+  const pending = s?.tasks.filter((t) => t.status === 'pending') ?? [];
+  const canBuy = !!s && (s.isLeader || s.assignedTo?.id === s.user?.id) && pending.length > 0;
 
-  async function editQty(t: ShoppingTask) {
+  async function editQty(t: ShoppingItem) {
     const v = prompt(`Số lượng ${t.food.name} (${t.food.unit.name})`, String(t.quantity));
     if (v === null) return;
     const q = parseQty(v);
@@ -114,27 +114,27 @@ export function ShoppingDetail() {
   }
 
   return (
-    <Async loading={loading} error={error} empty={!l} onRetry={reload}>
-      {l && (
+    <Async loading={loading} error={error} empty={!s} onRetry={reload}>
+      {s && (
         <>
           <div className="page-head">
-            <h1>{l.name}</h1>
+            <h1>{s.name}</h1>
             {canBuy && <button onClick={() => setModal('buy')}>🛍️ Xác nhận đã mua ({pending.length})</button>}
             {s.isLeader && (
               <>
                 <button className="ghost" onClick={() => setModal('add')}>+ Thêm món</button>
                 <button className="ghost" onClick={() => setModal('edit')}>Sửa</button>
                 <button className="ghost" onClick={async () => {
-                  if (await confirm(`Xóa "${l.name}" và toàn bộ món trong danh sách?`)) {
-                    if (await run(() => shoppingApi.remove(l.id), 'Đã xóa danh sách')) nav('/shopping');
+                  if (await confirm(`Xóa "${s.name}" và toàn bộ món trong danh sách?`)) {
+                    if (await run(() => shoppingApi.remove(s.id), 'Đã xóa danh sách')) nav('/shopping');
                   }
                 }}>Xóa</button>
               </>
             )}
           </div>
           <p className="muted">
-            Ngày đi chợ {fmtDate(l.date)} · {l.assignedTo ? `Người mua: ${l.assignedTo.name} (@${l.assignedTo.username})` : 'Chưa giao cho ai'}
-            {l.note && <><br />📝 {l.note}</>}
+            Ngày đi chợ {fmtDate(s.date)} · {s.assignedTo ? `Người mua: ${s.assignedTo.name} (@${s.assignedTo.username})` : 'Chưa giao cho ai'}
+            {s.note && <><br />📝 {s.note}</>}
           </p>
           <h2>Cần mua ({pending.length})</h2>
           <div className="list">
@@ -155,11 +155,11 @@ export function ShoppingDetail() {
               </div>
             ))}
           </div>
-          {l.progress.bought > 0 && (
+          {s.progress.bought > 0 && (
             <>
-              <h2>Đã mua ({l.progress.bought})</h2>
+              <h2>Đã mua ({s.progress.bought})</h2>
               <div className="list">
-                {l.tasks.filter((t) => t.status === 'bought').map((t) => (
+                {s.tasks.filter((t) => t.status === 'bought').map((t) => (
                   <div key={t.id} className="item">
                     <span>✅</span>
                     <div className="grow"><div className="title" style={{ textDecoration: 'line-through' }}>{t.food.name}</div>
@@ -170,9 +170,9 @@ export function ShoppingDetail() {
               </div>
             </>
           )}
-          {modal === 'add' && <AddTasks listId={l.id} onClose={() => { setModal(null); reload(); }} />}
-          {modal === 'edit' && <ListForm list={l} onClose={() => setModal(null)} onSaved={() => { setModal(null); reload(); }} />}
-          {modal === 'buy' && <Purchase list={l} onClose={(ok) => { setModal(null); if (ok) reload(); }} />}
+          {modal === 'add' && <AddTasks sessionId={s.id} onClose={() => { setModal(null); reload(); }} />}
+          {modal === 'edit' && <ListForm session={s} onClose={() => setModal(null)} onSaved={() => { setModal(null); reload(); }} />}
+          {modal === 'buy' && <Purchase session={s} onClose={(ok) => { setModal(null); if (ok) reload(); }} />}
         </>
       )}
     </Async>
@@ -180,7 +180,7 @@ export function ShoppingDetail() {
 }
 
 /** Thêm nhiều món một lần; mục lỗi (không tồn tại, trùng) được giữ lại để sửa (UC03 - 5a). */
-function AddTasks({ listId, onClose }: { listId: number; onClose: () => void }) {
+function AddTasks({ sessionId, onClose }: { sessionId: number; onClose: () => void }) {
   const toast = useToast();
   const [rows, setRows] = useState<{ key: number; food: Food | null; qty: string }[]>([{ key: 1, food: null, qty: '1' }]);
   const [busy, setBusy] = useState(false);
@@ -190,7 +190,7 @@ function AddTasks({ listId, onClose }: { listId: number; onClose: () => void }) 
     if (!valid.length) return toast({ text: 'Chọn thực phẩm và nhập số lượng > 0 cho ít nhất một dòng', error: true });
     setBusy(true);
     try {
-      const r = await shoppingApi.addTasks(listId, valid.map((v) => ({ foodName: v.food!.name, quantity: parseQty(v.qty) })));
+      const r = await shoppingApi.addTasks(sessionId, valid.map((v) => ({ foodName: v.food!.name, quantity: parseQty(v.qty) })));
       if (!r.data.failed.length) {
         toast({ text: `Đã thêm ${r.data.created.length} món` });
         return onClose();
@@ -230,10 +230,10 @@ function AddTasks({ listId, onClose }: { listId: number; onClose: () => void }) 
  * UC04 - Xác nhận đã mua: số lượng thực mua, hạn dùng, vị trí; backend xử lý trong MỘT giao dịch.
  * Khóa chống lặp giữ nguyên khi bấm "Thử lại" sau lỗi mạng, đổi nội dung thì sinh khóa mới (NFR10).
  */
-function Purchase({ list, onClose }: { list: ShoppingList; onClose: (ok: boolean) => void }) {
+function Purchase({ session, onClose }: { session: ShoppingSession; onClose: (ok: boolean) => void }) {
   const toast = useToast();
   const defaultExpiry = isoDate(addDays(today(), 3));
-  const pending = useMemo(() => list.tasks.filter((t) => t.status === 'pending'), [list]);
+  const pending = useMemo(() => session.items.filter((t) => t.status === 'pending'), [session]);
   const [items, setItems] = useState(() =>
     Object.fromEntries(pending.map((t) => [t.id, { on: true, qty: String(t.quantity), toFridge: true, useWithin: defaultExpiry, location: 'cool' as Location }])),
   );
@@ -252,7 +252,7 @@ function Purchase({ list, onClose }: { list: ShoppingList; onClose: (ok: boolean
     setBusy(true);
     try {
       await shoppingApi.purchase(
-        list.id,
+        session.id,
         chosen.map((t) => {
           const d = items[t.id];
           return { taskId: t.id, boughtQuantity: parseQty(d.qty), addToFridge: d.toFridge, ...(d.toFridge ? { useWithin: d.useWithin, location: d.location } : {}) };

@@ -13,7 +13,8 @@ import { triggerExpiryScan } from '../notification/expiry.job.js';
 
 export const FRIDGE_SELECT = `
   SELECT fi.id, fi.group_id, fi.quantity, fi.use_within, fi.location, fi.note, fi.version,
-         fi.created_at, fi.updated_at,
+         fi.shopping_item_id, fi.batch_code,
+         fi.purchased_at, fi.created_at, fi.updated_at,
          f.id AS food_id, f.name AS food_name, f.image_url AS food_image_url,
          c.id AS category_id, c.name AS category_name, un.id AS unit_id, un.name AS unit_name
     FROM fridge_items fi
@@ -42,7 +43,11 @@ export function toFridgeDto(r) {
     status,
     daysLeft: Math.floor(ms / 86400_000),
     createdAt: r.created_at,
+    storedAt: r.created_at,
+    purchasedAt: r.purchased_at,
     updatedAt: r.updated_at,
+    shoppingItemId: r.shopping_item_id,
+    batchCode: r.batch_code,
   };
 }
 
@@ -77,7 +82,7 @@ const parseVersion = (v) => (v === undefined || v === null || v === '' ? null : 
 
 /** GET fridge/?q&categoryId&location&expiringDays&sort&page&limit */
 export async function listItems(ctx, q = {}) {
-  const groupId = requireMember(ctx, '00225');
+  const groupId = requireMember(ctx, '00096');
   const p = parsePage(q, { defaultLimit: 50 });
   const params = [groupId];
   const where = ['fi.group_id = $1'];
@@ -103,34 +108,39 @@ export async function listItems(ctx, q = {}) {
       [groupId, env.expiryReminderDays],
     )
   ).rows[0];
-  return result('00228', { items: rows.map(toFridgeDto), summary, ...pageMeta(p, total) });
+  const { rows: locations } = await query(
+    `SELECT location, COALESCE(sum(quantity), 0) AS quantity, count(*)::int AS items
+       FROM fridge_items WHERE group_id = $1 GROUP BY location`,
+    [groupId],
+  );
+  return result('00190', { items: rows.map(toFridgeDto), summary, locations, ...pageMeta(p, total) });
 }
 
 /** GET fridge/:foodName/ */
 export async function getByFoodName(ctx, foodName) {
-  ensure(isPresent(foodName), '00229');
-  const groupId = requireMember(ctx, '00232');
+  ensure(isPresent(foodName), '00147');
+  const groupId = requireMember(ctx, '00219');
   const food = await findFoodByName(null, groupId, foodName);
-  ensure(food, '00230');
+  ensure(food, '00167');
   const { rows } = await query(`${FRIDGE_SELECT} WHERE fi.group_id = $1 AND fi.food_id = $2`, [groupId, food.id]);
-  ensure(rows[0], '00234');
-  return result('00237', { item: toFridgeDto(rows[0]) });
+  ensure(rows[0], '00221');
+  return result('00237', { item: toFridgeDto(rows[0]), items: rows.map(toFridgeDto) });
 }
 
 /** GET fridge/item/:itemId/ - Mở chi tiết từ thông báo nhắc hạn (UC06 bước 6). */
 export async function getById(ctx, rawId) {
   const itemId = toId(rawId);
   ensure(itemId, '00204');
-  const groupId = requireMember(ctx, '00232');
+  const groupId = requireMember(ctx, '00219');
   const item = await getItem({ query }, groupId, itemId);
-  ensure(item, '00234');
+  ensure(item, '00221');
   return result('00237', { item: toFridgeDto(item) });
 }
 
 /** POST fridge/ - Ghi nhận thực phẩm vào tủ lạnh. */
 export async function createItem(ctx, body = {}) {
-  ensure(isPresent(body.foodName) || isPresent(body.useWithin) || isPresent(body.quantity), '00203');
-  ensure(isPresent(body.foodName), '00190');
+  ensure(isPresent(body.foodName) || isPresent(body.useWithin) || isPresent(body.quantity), '00005');
+  ensure(isPresent(body.foodName), '00147');
   const useWithin = parseUseWithin(body.useWithin, ctx.timezone);
   ensure(useWithin, '00191');
   const quantity = positiveNumber(body.quantity);
@@ -139,9 +149,9 @@ export async function createItem(ctx, body = {}) {
   ensure(note.ok, '00193');
   const location = body.location ?? 'cool';
   ensure(LOCATIONS.includes(location), '00517');
-  const groupId = requireMember(ctx, '00196');
+  const groupId = requireMember(ctx, '00096');
   const food = await findFoodByName(null, groupId, body.foodName);
-  ensure(food, '00194');
+  ensure(food, '00167');
 
   let itemId;
   try {
@@ -169,23 +179,23 @@ export async function updateItem(ctx, body = {}) {
   const itemId = toId(body.itemId);
   ensure(itemId, '00204');
   const fields = ['newQuantity', 'newNote', 'newUseWithin', 'newFoodName', 'newLocation'];
-  ensure(fields.some((f) => body[f] !== undefined && body[f] !== ''), '00204x');
+  ensure(fields.some((f) => body[f] !== undefined && body[f] !== ''), '00005');
 
   let newUseWithin = null;
   if (isPresent(body.newUseWithin)) {
     newUseWithin = parseUseWithin(body.newUseWithin, ctx.timezone);
-    ensure(newUseWithin, '00205');
+    ensure(newUseWithin, '00191');
   }
   let newQuantity = null;
   if (isPresent(body.newQuantity)) {
     newQuantity = positiveNumber(body.newQuantity);
-    ensure(newQuantity, '00206');
+    ensure(newQuantity, '00192');
   }
   const newNote = body.newNote !== undefined ? optionalNote(body.newNote) : null;
-  if (newNote) ensure(newNote.ok, '00207');
+  if (newNote) ensure(newNote.ok, '00193');
   if (isPresent(body.newLocation)) ensure(LOCATIONS.includes(body.newLocation), '00517');
   const version = parseVersion(body.version);
-  const groupId = requireMember(ctx, '00210');
+  const groupId = requireMember(ctx, '00096');
 
   try {
     await withTx(async (db) => {
@@ -202,7 +212,7 @@ export async function updateItem(ctx, body = {}) {
       let food = item;
       if (isPresent(body.newFoodName)) {
         const nf = await findFoodByName(db, groupId, body.newFoodName);
-        ensure(nf, '00214x');
+        ensure(nf, '00167x');
         push('food_id', nf.id);
         food = { ...nf, food_id: nf.id, food_name: nf.name };
       }
@@ -231,7 +241,7 @@ export async function updateItem(ctx, body = {}) {
 
 /** DELETE fridge/ {foodName | itemId} */
 export async function deleteItem(ctx, body = {}) {
-  ensure(isPresent(body.foodName) || isPresent(body.itemId), '00217');
+  ensure(isPresent(body.foodName) || isPresent(body.itemId), '00147');
   const groupId = requireMember(ctx, '00219');
   await withTx(async (db) => {
     let item;
@@ -241,7 +251,7 @@ export async function deleteItem(ctx, body = {}) {
       item = await getItem(db, groupId, id, true);
     } else {
       const food = await findFoodByName(db, groupId, body.foodName);
-      ensure(food, '00218');
+      ensure(food, '00167');
       item = (await db.query(`${FRIDGE_SELECT} WHERE fi.group_id = $1 AND fi.food_id = $2 FOR UPDATE OF fi`, [groupId, food.id]))
         .rows[0];
     }
@@ -268,7 +278,7 @@ export async function consumeItem(ctx, body = {}) {
   const note = optionalNote(body.note);
   ensure(note.ok, '00193');
   const version = parseVersion(body.version);
-  const groupId = requireMember(ctx, '00210');
+  const groupId = requireMember(ctx, '00096');
 
   const out = await withTx(async (db) => {
     const item = await getItem(db, groupId, itemId, true);

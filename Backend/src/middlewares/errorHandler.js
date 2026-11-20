@@ -7,8 +7,8 @@ export function notFound(_req, res) {
 // eslint-disable-next-line no-unused-vars
 export function errorHandler(err, req, res, _next) {
   if (err instanceof AppError) return send(res, { code: err.code, data: err.data });
-  if (err?.type === 'entity.parse.failed') return send(res, { code: '00025' });
-  if (err?.type === 'entity.too.large') return send(res, { code: '00025' });
+  if (err?.type === 'entity.parse.failed') return send(res, { code: '00005' });
+  if (err?.type === 'entity.too.large') return send(res, { code: '00005' });
   console.error(`[error] ${req.method} ${req.originalUrl}`, err);
   return send(res, { code: '00008' });
 }

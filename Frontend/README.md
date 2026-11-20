@@ -78,4 +78,4 @@ flutter test
   và mỗi lần mở lại app, hiện badge + thông báo trong app.
 - Xác nhận mua dùng khóa chống lặp: bấm "Thử lại" sau lỗi mạng không làm cộng tồn kho hai lần.
 - Các thao tác chỉ dành cho trưởng nhóm được ẩn khỏi giao diện thành viên; backend vẫn kiểm tra quyền mọi yêu cầu.
-- Phông Arial (NFR01): Android không có sẵn Arial nên hiển thị bằng phông mặc định tương đương.
+- Phông Inter (NFR01): Android không có sẵn Inter nên hiển thị bằng phông mặc định tương đương.

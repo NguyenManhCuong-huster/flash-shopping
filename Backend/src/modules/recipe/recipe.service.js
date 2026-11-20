@@ -96,17 +96,17 @@ async function saveIngredients(db, groupId, recipeId, ingredients) {
 
 /** POST recipe/ {foodName, name, description, htmlContent, ingredients?} */
 export async function createRecipe(ctx, body = {}) {
-  ensure(['foodName', 'name', 'description', 'htmlContent'].some((k) => isPresent(body[k])), '00349');
-  ensure(cleanString(body.foodName, { max: 150 }), '00350');
+  ensure(['foodName', 'name', 'description', 'htmlContent'].some((k) => isPresent(body[k])), '00005');
+  ensure(cleanString(body.foodName, { max: 150 }), '00148');
   const name = cleanString(body.name, { min: 1, max: 150 });
   ensure(name, '00351');
   const description = cleanString(body.description, { min: 1, max: 2000 });
   ensure(description, '00352');
   const html = typeof body.htmlContent === 'string' && body.htmlContent.length <= 50_000 ? cleanHtml(body.htmlContent) : '';
   ensure(html, '00353');
-  const groupId = requireMember(ctx, '00185');
+  const groupId = requireMember(ctx, '00096');
   const food = await findFoodByName(null, groupId, body.foodName);
-  ensure(food, '00354');
+  ensure(food, '00167');
 
   const id = await withTx(async (db) => {
     const ingredients = body.ingredients !== undefined ? await resolveIngredients(db, groupId, body.ingredients) : [];
@@ -133,24 +133,24 @@ export async function updateRecipe(ctx, body = {}) {
   const recipeId = toId(body.recipeId);
   ensure(recipeId, '00359');
   const keys = ['newFoodName', 'newDescription', 'newHtmlContent', 'newName', 'newIngredients'];
-  ensure(keys.some((k) => body[k] !== undefined), '00360');
-  if (body.newFoodName !== undefined) ensure(cleanString(body.newFoodName, { max: 150 }), '00361');
+  ensure(keys.some((k) => body[k] !== undefined), '00163');
+  if (body.newFoodName !== undefined) ensure(cleanString(body.newFoodName, { max: 150 }), '00148');
   let newDescription = null;
   if (body.newDescription !== undefined) {
     newDescription = cleanString(body.newDescription, { min: 1, max: 2000 });
-    ensure(newDescription, '00362');
+    ensure(newDescription, '00352');
   }
   let newHtml = null;
   if (body.newHtmlContent !== undefined) {
     newHtml = typeof body.newHtmlContent === 'string' && body.newHtmlContent.length <= 50_000 ? cleanHtml(body.newHtmlContent) : '';
-    ensure(newHtml, '00363');
+    ensure(newHtml, '00353');
   }
   let newName = null;
   if (body.newName !== undefined) {
     newName = cleanString(body.newName, { min: 1, max: 150 });
-    ensure(newName, '00364');
+    ensure(newName, '00351');
   }
-  const groupId = requireMember(ctx, '00185');
+  const groupId = requireMember(ctx, '00096');
 
   await withTx(async (db) => {
     const recipe = (await db.query('SELECT * FROM recipes WHERE id = $1 AND group_id = $2 FOR UPDATE', [recipeId, groupId])).rows[0];
@@ -164,7 +164,7 @@ export async function updateRecipe(ctx, body = {}) {
     };
     if (body.newFoodName !== undefined) {
       const food = await findFoodByName(db, groupId, body.newFoodName);
-      ensure(food, '00367');
+      ensure(food, '00167');
       push('food_id', food.id);
     }
     if (newName) push('name', newName);
@@ -183,11 +183,11 @@ export async function updateRecipe(ctx, body = {}) {
 export async function deleteRecipe(ctx, body = {}) {
   ensure(body && Object.keys(body).length, '00371');
   const recipeId = toId(body.recipeId);
-  ensure(recipeId, '00372');
-  const groupId = requireMember(ctx, '00185');
+  ensure(recipeId, '00359');
+  const groupId = requireMember(ctx, '00096');
   await withTx(async (db) => {
     const recipe = (await db.query('SELECT * FROM recipes WHERE id = $1 AND group_id = $2 FOR UPDATE', [recipeId, groupId])).rows[0];
-    ensure(recipe, '00373');
+    ensure(recipe, '00365');
     assertCanModify(ctx, recipe);
     await db.query('DELETE FROM recipes WHERE id = $1', [recipeId]);
     await audit(db, ctx, 'recipe.delete', 'recipe', recipeId, { name: recipe.name });
@@ -197,13 +197,13 @@ export async function deleteRecipe(ctx, body = {}) {
 
 /** GET recipe/?foodId&q&page&limit - Tìm kiếm công thức (theo thực phẩm chính hoặc từ khóa). */
 export async function listRecipes(ctx, q = {}) {
-  const groupId = requireMember(ctx, '00185');
+  const groupId = requireMember(ctx, '00096');
   const p = parsePage(q, { defaultLimit: 20 });
   const params = [groupId];
   const where = ['r.group_id = $1'];
   if (q.foodId !== undefined) {
     const foodId = toId(q.foodId);
-    ensure(foodId, '00023');
+    ensure(foodId, '00022');
     params.push(foodId);
     where.push(`(r.food_id = $${params.length} OR EXISTS (SELECT 1 FROM recipe_ingredients ri WHERE ri.recipe_id = r.id AND ri.food_id = $${params.length}))`);
   }
@@ -224,10 +224,10 @@ export async function listRecipes(ctx, q = {}) {
 /** GET recipe/:recipeId/ */
 export async function getRecipe(ctx, rawId) {
   const id = toId(rawId);
-  ensure(id, '00372');
-  const groupId = requireMember(ctx, '00185');
+  ensure(id, '00359');
+  const groupId = requireMember(ctx, '00096');
   const recipe = await loadRecipe({ query }, groupId, id);
-  ensure(recipe, '00373');
+  ensure(recipe, '00365');
   return result('00378', { recipe });
 }
 
@@ -236,7 +236,7 @@ export async function getRecipe(ctx, rawId) {
  * Ưu tiên: nấu được ngay > dùng nhiều nguyên liệu sắp hết hạn > tỉ lệ nguyên liệu sẵn có.
  */
 export async function suggestRecipes(ctx, q = {}) {
-  const groupId = requireMember(ctx, '00185');
+  const groupId = requireMember(ctx, '00096');
   const limit = Math.min(50, Math.max(1, Number.parseInt(q.limit, 10) || 20));
   const db = { query };
   const { rows } = await query(`${RECIPE_SELECT} WHERE r.group_id = $1`, [groupId]);

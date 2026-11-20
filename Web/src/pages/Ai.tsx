@@ -9,7 +9,7 @@ import { useSession } from '../lib/session';
 
 const TOOL_LABELS: Record<string, string> = {
   list_fridge_items: 'Đang xem tủ lạnh', find_expiring_items: 'Đang tìm đồ sắp hết hạn', get_fridge_item: 'Đang xem tủ lạnh',
-  list_foods: 'Đang tra danh sách thực phẩm', list_shopping_lists: 'Đang xem danh sách mua sắm', get_meal_plans: 'Đang xem lịch bữa ăn',
+  list_foods: 'Đang tra danh sách thực phẩm', list_shopping_sessions: 'Đang xem danh sách mua sắm', get_meal_plans: 'Đang xem lịch bữa ăn',
   check_meal_ingredients: 'Đang kiểm tra nguyên liệu', get_recipes: 'Đang tìm công thức', get_recipe_detail: 'Đang đọc công thức',
   suggest_recipes: 'Đang gợi ý món', get_group_members: 'Đang xem thành viên nhóm', read_attachment: 'Đang xem ảnh',
 };

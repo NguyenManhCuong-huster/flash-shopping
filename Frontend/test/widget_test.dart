@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:di_cho_tien_loi/application/meal_service.dart';
-import 'package:di_cho_tien_loi/application/validation/validators.dart';
+import '../lib/features/meal/meal_service.dart';
+import '../lib/core/utils/validators.dart';
 
 void main() {
   group('Validators', () {

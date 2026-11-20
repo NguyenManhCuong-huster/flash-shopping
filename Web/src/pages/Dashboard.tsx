@@ -11,13 +11,13 @@ export function Dashboard() {
   const { data, loading, error, reload } = useLoad(async () => {
     if (!s.hasGroup) return null;
     const t = isoDate(today());
-    const [fridge, meals, lists, suggestions] = await Promise.all([
+    const [fridge, meals, sessions, suggestions] = await Promise.all([
       fridgeApi.list({ expiringDays: 3 }),
       mealApi.plans(t, t),
-      shoppingApi.lists({ status: 'open', assignedToMe: true }),
+      shoppingApi.sessions({ status: 'open', assignedToMe: true }),
       s.isLeader ? aiApi.suggestions() : Promise.resolve([]),
     ]);
-    return { fridge, meals, lists: lists.lists, suggestions };
+    return { fridge, meals, sessions: sessions.sessions, suggestions };
   }, [s.hasGroup, s.isLeader]);
 
   return (
@@ -87,8 +87,8 @@ export function Dashboard() {
                   </div>
                   <h2>Danh sách giao cho tôi</h2>
                   <div className="list">
-                    {data.lists.length === 0 && <div className="item muted">Không có danh sách đang mở.</div>}
-                    {data.lists.map((l) => (
+                    {data.sessions.length === 0 && <div className="item muted">Không có danh sách đang mở.</div>}
+                    {data.sessions.map((l) => (
                       <Link key={l.id} to={`/shopping/${l.id}`} className="item click" style={{ color: '#000' }}>
                         <span>🛒</span>
                         <div className="grow"><div className="title">{l.name}</div><div className="sub">Ngày {fmtDate(l.date)}</div></div>

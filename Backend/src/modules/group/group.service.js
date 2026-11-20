@@ -41,7 +41,7 @@ export async function createGroup(ctx, body = {}) {
       return g.rows[0].id;
     });
   } catch (err) {
-    if (err.code === '23505') throw new AppError('00093'); // đã vào nhóm khác cùng lúc
+    if (err.code === '23505') throw new AppError('00093');
     throw err;
   }
   return result('00095', { group: await groupDetail(groupId) });
@@ -50,7 +50,7 @@ export async function createGroup(ctx, body = {}) {
 /** GET user/group/ - Xem nhóm và danh sách thành viên. */
 export async function getGroup(ctx) {
   const groupId = requireMember(ctx, '00096');
-  return result('00098', { group: await groupDetail(groupId), myRole: ctx.groupRole });
+  return result('00097', { group: await groupDetail(groupId), myRole: ctx.groupRole });
 }
 
 /** PUT user/group/ - Đổi tên nhóm (trưởng nhóm). */
@@ -65,13 +65,13 @@ export async function renameGroup(ctx, body = {}) {
 
 /** POST user/group/add/ - Trưởng nhóm thêm thành viên qua username. */
 export async function addMember(ctx, body = {}) {
-  ensure(isPresent(body.username), '00100');
-  const groupId = requireLeader(ctx, '00096', '00506');
+  ensure(isPresent(body.username), '00101');
+  const groupId = requireLeader(ctx, '00096', '00104');
   const username = String(body.username).trim();
   try {
     await withTx(async (db) => {
       const target = await findUserByUsername(db, username);
-      ensure(target, '00099x');
+      ensure(target, '00007');
       const exists = await db.query('SELECT 1 FROM group_members WHERE user_id = $1', [target.id]);
       ensure(!exists.rowCount, '00099');
       await db.query(`INSERT INTO group_members (group_id, user_id, role) VALUES ($1, $2, 'member')`, [
@@ -89,12 +89,12 @@ export async function addMember(ctx, body = {}) {
 
 /** DELETE user/group/ - Trưởng nhóm xóa thành viên. */
 export async function removeMember(ctx, body = {}) {
-  ensure(isPresent(body.username), '00107');
+  ensure(isPresent(body.username), '00101');
   const groupId = requireLeader(ctx, '00096', '00104');
   const username = String(body.username).trim();
   await withTx(async (db) => {
     const target = await findUserByUsername(db, username);
-    ensure(target, '00099x');
+    ensure(target, '00007');
     ensure(target.id !== ctx.userId, '00503');
     const del = await db.query('DELETE FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, target.id]);
     ensure(del.rowCount, '00103');
@@ -113,7 +113,6 @@ export async function leaveGroup(ctx) {
         ctx.userId,
       ]);
       ensure(others.rows[0].n === 0, '00501');
-      // Thành viên cuối cùng rời => giải tán nhóm và dữ liệu của nhóm
       await db.query('DELETE FROM groups WHERE id = $1', [groupId]);
       await audit(db, ctx, 'group.dissolve', 'group', groupId);
     } else {
@@ -126,11 +125,11 @@ export async function leaveGroup(ctx) {
 
 /** PUT user/group/leader/ - Chuyển quyền trưởng nhóm. */
 export async function transferLeader(ctx, body = {}) {
-  ensure(isPresent(body.username), '00100');
+  ensure(isPresent(body.username), '00101');
   const groupId = requireLeader(ctx, '00096', '00104');
   await withTx(async (db) => {
     const target = await findUserByUsername(db, String(body.username).trim());
-    ensure(target, '00099x');
+    ensure(target, '00007');
     ensure(target.id !== ctx.userId, '00563');
     const m = await db.query('SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, target.id]);
     ensure(m.rowCount, '00103');

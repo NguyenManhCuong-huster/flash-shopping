@@ -5,7 +5,7 @@ import { aiConfigured } from './llm.gateway.js';
 import { generateSuggestions } from './suggestion.worker.js';
 
 export function startAiJobs() {
-  // Hành động 'proposed' quá 15 phút -> expired (xác nhận sau đó trả 00421); gợi ý quá hạn -> expired
+  // Hành động 'proposed' quá 15 phút -> expired (xác nhận sau đó trả 00420); gợi ý quá hạn -> expired
   registerHousekeeping(async () => {
     await query(`UPDATE ai_actions SET status = 'expired' WHERE status = 'proposed' AND expires_at < now()`);
     await query(`UPDATE ai_suggestions SET status = 'expired' WHERE status = 'pending' AND expires_at < now()`);
