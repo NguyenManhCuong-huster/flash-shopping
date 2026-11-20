@@ -71,7 +71,7 @@ export interface FridgeSummary {
   expired: number;
 }
 
-export interface ShoppingTask {
+export interface ShoppingItem {
   id: number;
   food: Food;
   quantity: number;
@@ -81,13 +81,13 @@ export interface ShoppingTask {
   boughtBy: { id: number; name: string } | null;
 }
 
-export interface ShoppingList {
+export interface ShoppingSession {
   id: number;
   name: string;
   note: string | null;
   date: string;
   assignedTo: { id: number; name: string; username: string } | null;
-  tasks: ShoppingTask[];
+  items: ShoppingItem[];
   progress: { total: number; bought: number; done: boolean };
 }
 
@@ -153,7 +153,7 @@ export interface StatsReport {
   to: string;
   totals: Record<string, number>;
   wasteRate: number;
-  shopping: { lists: number; tasks: number; boughtTasks: number };
+  shopping: { sessions: number; items: number; boughtItems: number };
   byFood: { foodName: string; unit: string; category: string; purchased: number; added: number; consumed: number; discarded: number }[];
   byCategory: { category: string; inEvents: number; consumeEvents: number; discardEvents: number }[];
   daily: { date: string; inEvents: number; consumeEvents: number; discardEvents: number }[];

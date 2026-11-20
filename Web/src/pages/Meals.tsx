@@ -128,11 +128,11 @@ function Ingredients({ plan, date, onClose }: { plan?: MealPlan; date?: string; 
   const nav = useNavigate();
   const { run, busy } = useAction();
   const { data, loading, error, reload } = useLoad(() => mealApi.ingredients(plan ? { planId: plan.id } : { date }), [plan?.id, date]);
-  const lists = useLoad(() => shoppingApi.lists({ status: 'open' }).then((r) => r.lists), []);
+  const sessions = useLoad(() => shoppingApi.sessions({ status: 'open' }).then((r) => r.sessions), []);
   const [target, setTarget] = useState('new');
   async function addMissing() {
-    const r = await run(() => mealApi.missingToShopping({ ...(plan ? { planId: plan.id } : { date }), listId: target === 'new' ? undefined : Number(target) }), 'Đã thêm nguyên liệu còn thiếu vào danh sách mua');
-    if (r?.data.listId) nav(`/shopping/${r.data.listId}`);
+    const r = await run(() => mealApi.missingToShopping({ ...(plan ? { planId: plan.id } : { date }), sessionId: target === 'new' ? undefined : Number(target) }), 'Đã thêm nguyên liệu còn thiếu vào danh sách mua');
+    if (r?.data.sessionId) nav(`/shopping/${r.data.sessionId}`);
   }
   return (
     <Modal title={`Nguyên liệu: ${plan ? plan.recipe?.name ?? plan.food.name : `ngày ${fmtDate(date!)}`}`} onClose={onClose} wide>

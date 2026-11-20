@@ -119,28 +119,28 @@ for (const [offset, name, ref] of plans) await call('POST', '/meal', { ...ref, t
 // 1) Đã đi chợ xong (Lan xác nhận mua -> vào tủ lạnh, có lịch sử mua)
 const done = await call('POST', '/shopping', { name: 'Đi chợ cuối tuần', date: day(-3), assignToUsername: 'lan_tran', note: 'Chợ Hôm' }, minh);
 const doneTasks = await call('POST', '/shopping/task', {
-  listId: done.listId,
+  sessionId: done.sessionId,
   tasks: [{ foodName: 'Thịt lợn', quantity: 1 }, { foodName: 'Tôm', quantity: 0.5 }, { foodName: 'Rau muống', quantity: 2 }, { foodName: 'Chuối', quantity: 6 }],
 }, minh);
 await call('POST', '/shopping/purchase', {
-  listId: done.listId,
+  sessionId: done.sessionId,
   items: doneTasks.created.map((t) => ({ taskId: t.taskId, useWithin: t.foodName === 'Rau muống' ? '2' : '5', location: t.foodName === 'Tôm' ? 'freezer' : 'cool' })),
 }, lan, { 'Idempotency-Key': `seed-${Date.now()}` });
 
 // 2) Đang mở, giao cho Lan, đã mua một phần
 const open = await call('POST', '/shopping', { name: 'Đi chợ hôm nay', date: day(0), assignToUsername: 'lan_tran', note: 'Mua thêm nguyên liệu bò hầm' }, minh);
 const openTasks = await call('POST', '/shopping/task', {
-  listId: open.listId,
+  sessionId: open.sessionId,
   tasks: [{ foodName: 'Cà chua', quantity: 0.5 }, { foodName: 'Hành lá', quantity: 2 }, { foodName: 'Sữa tươi', quantity: 2 }, { foodName: 'Táo', quantity: 1 }],
 }, minh);
 await call('POST', '/shopping/purchase', {
-  listId: open.listId,
+  sessionId: open.sessionId,
   items: [{ taskId: openTasks.created.find((t) => t.foodName === 'Táo').taskId, boughtQuantity: 1.2, useWithin: '7', location: 'cool' }],
 }, lan, { 'Idempotency-Key': `seed-${Date.now()}-2` });
 
 // 3) Ngày mai, chưa giao
 const next = await call('POST', '/shopping', { name: 'Siêu thị ngày mai', date: day(1) }, minh);
-await call('POST', '/shopping/task', { listId: next.listId, tasks: [{ foodName: 'Gạo', quantity: 5 }, { foodName: 'Nước mắm', quantity: 1 }] }, minh);
+await call('POST', '/shopping/task', { sessionId: next.sessionId, tasks: [{ foodName: 'Gạo', quantity: 5 }, { foodName: 'Nước mắm', quantity: 1 }] }, minh);
 
 // ---------- Tiêu thụ / bỏ đi (cho thống kê) ----------
 const items = (await call('GET', '/fridge?limit=50', undefined, lan)).items;

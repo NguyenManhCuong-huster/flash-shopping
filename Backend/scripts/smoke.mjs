@@ -150,28 +150,28 @@ async function main() {
   expect('Giao cho người nhóm khác', await call('POST', '/shopping', { token: A.token, body: { name: 'Đi chợ', date: today, assignToUsername: C.username } }), '00104');
   expect('Tên danh sách sai', await call('POST', '/shopping', { token: A.token, body: { name: '' } }), '00239');
   const sl = expect('A tạo danh sách giao cho B', await call('POST', '/shopping', { token: A.token, body: { name: 'Đi chợ sáng', assignToUsername: B.username } }), '00249');
-  const listId = sl.data.listId;
+  const sessionId = sl.data.sessionId;
   const tk = expect(
     'Thêm mục: 1 hợp lệ, 1 không tồn tại, 1 trùng',
     await call('POST', '/shopping/item', {
       token: A.token,
-      body: { listId, items: [{ foodName: 'Cà rốt', quantity: 3 }, { foodName: 'Không tồn tại', quantity: 1 }, { foodName: 'cà rốt', quantity: 1 }, { foodName: 'Cà chua', quantity: 0.5 }] },
+      body: { sessionId, items: [{ foodName: 'Cà rốt', quantity: 3 }, { foodName: 'Không tồn tại', quantity: 1 }, { foodName: 'cà rốt', quantity: 1 }, { foodName: 'Cà chua', quantity: 0.5 }] },
     }),
     '00507',
     (d) => d.created.length === 2 && d.failed.length === 2 && d.failed.some((f) => f.code === '00151'),
   );
   const carrotTask = tk.data.created.find((t) => t.foodName === 'Cà rốt').itemId;
   const tomatoTask = tk.data.created.find((t) => t.foodName === 'Cà chua').itemId;
-  expect('B thêm mục (không phải trưởng nhóm)', await call('POST', '/shopping/item', { token: B.token, body: { listId, items: [{ foodName: 'Hành lá', quantity: 1 }] } }), '00104');
-  expect('C xem danh sách nhóm A', await call('GET', `/shopping/${listId}`, { token: C.token }), '00260');
-  expect('C không thấy list nhóm A', await call('GET', '/shopping/item', { token: C.token }), '00292', (d) => d.total === 0);
+  expect('B thêm mục (không phải trưởng nhóm)', await call('POST', '/shopping/item', { token: B.token, body: { sessionId, items: [{ foodName: 'Hành lá', quantity: 1 }] } }), '00104');
+  expect('C xem danh sách nhóm A', await call('GET', `/shopping/${sessionId}`, { token: C.token }), '00260');
+  expect('C không thấy session nhóm A', await call('GET', '/shopping/item', { token: C.token }), '00292', (d) => d.total === 0);
   expect('B xem danh sách được giao', await call('GET', '/shopping/item?assignedToMe=true', { token: B.token }), '00292', (d) => d.total === 1);
 
   section('UC04 Xác nhận mua (giao dịch + khóa chống lặp)');
   const key = `k-${sfx}-0001`;
-  const purchaseBody = { listId, items: [{ itemId: carrotTask, purchasedQuantity: 2.5, useWithin: '7', location: 'cool' }] };
+  const purchaseBody = { sessionId, items: [{ itemId: carrotTask, purchasedQuantity: 2.5, useWithin: '7', location: 'cool' }] };
   expect('Thiếu Idempotency-Key', await call('POST', '/shopping/purchase', { token: B.token, body: purchaseBody }), '00511');
-  expect('C xác nhận list nhóm A', await call('POST', '/shopping/purchase', { token: C.token, body: purchaseBody, headers: { 'Idempotency-Key': `c-${key}` } }), '00260');
+  expect('C xác nhận session nhóm A', await call('POST', '/shopping/purchase', { token: C.token, body: purchaseBody, headers: { 'Idempotency-Key': `c-${key}` } }), '00260');
   expect('B xác nhận mua cà rốt', await call('POST', '/shopping/purchase', { token: B.token, body: purchaseBody, headers: { 'Idempotency-Key': key } }), '00510', (d) => d.replayed === false && d.results[0].fridge.quantity === 2.5);
   expect('Gửi lại cùng khóa => trả kết quả cũ', await call('POST', '/shopping/purchase', { token: B.token, body: purchaseBody, headers: { 'Idempotency-Key': key } }), '00510', (d) => d.replayed === true);
   expect('Cùng khóa, nội dung khác', await call('POST', '/shopping/purchase', { token: B.token, body: { ...purchaseBody, items: [{ ...purchaseBody.items[0], purchasedQuantity: 9 }] }, headers: { 'Idempotency-Key': key } }), '00512');
@@ -179,7 +179,7 @@ async function main() {
   expect('Tồn cà rốt chỉ cộng 1 lần', await call('GET', `/fridge/${encodeURIComponent('Cà rốt')}`, { token: B.token }), '00237', (d) => d.item.quantity === 2.5);
   // Hai yêu cầu song song cùng khóa: chỉ một lần cộng tồn
   const key2 = `k-${sfx}-0002`;
-  const body2 = { listId, items: [{ itemId: tomatoTask, useWithin: '2', location: 'cool' }] };
+  const body2 = { sessionId, items: [{ itemId: tomatoTask, useWithin: '2', location: 'cool' }] };
   const [p1, p2] = await Promise.all([
     call('POST', '/shopping/purchase', { token: A.token, body: body2, headers: { 'Idempotency-Key': key2 } }),
     call('POST', '/shopping/purchase', { token: A.token, body: body2, headers: { 'Idempotency-Key': key2 } }),
@@ -218,8 +218,8 @@ async function main() {
   const mp = expect('A lập bữa tối ngày mai theo công thức', await call('POST', '/meal', { token: A.token, body: { recipeId, timestamp: tomorrow, name: 'tối' } }), '00322', (d) => d.plan.date === tomorrow);
   expect('B xem lịch ngày mai', await call('GET', `/meal?date=${tomorrow}`, { token: B.token }), '00348', (d) => d.plans.length === 1);
   expect('Kiểm tra nguyên liệu', await call('GET', `/meal/ingredients?planId=${mp.data.plan.id}`, { token: B.token }), '00535', (d) => d.missing.length === 2);
-  const itemsBefore = (await call('GET', `/shopping/${listId}`, { token: A.token })).data.list.items.length;
-  expect('Thêm nguyên liệu thiếu vào danh sách', await call('POST', '/meal/missing-to-shopping', { token: A.token, body: { planId: mp.data.plan.id, listId } }), '00536', (d) => d.list.items.length === itemsBefore + 1);
+  const itemsBefore = (await call('GET', `/shopping/${sessionId}`, { token: A.token })).data.session.items.length;
+  expect('Thêm nguyên liệu thiếu vào danh sách', await call('POST', '/meal/missing-to-shopping', { token: A.token, body: { planId: mp.data.plan.id, sessionId } }), '00536', (d) => d.session.items.length === itemsBefore + 1);
 
   section('UC10 Thống kê');
   expect('Báo cáo', await call('GET', '/stats', { token: B.token }), '00107', (d) => d.totals.purchase === 2 && d.totals.consume === 1 && d.totals.discard === 1);
@@ -241,7 +241,7 @@ async function main() {
   const chat = await call('POST', '/ai/chat', { token: A.token, body: { message: 'Tủ lạnh còn gì?' } });
   if (chat.code === '00410') expect('Chat (đã cấu hình AI_API_KEY)', chat, '00410');
   else expect('Chat khi chưa cấu hình LLM', chat, '00413');
-  expect('Danh sách công cụ AI', await call('GET', '/ai/tools', { token: B.token }), '00427', (d) => d.tools.every((t) => ['read', 'write'].includes(t.riskLevel) && !/^(update|delete|remove)_/.test(t.name)) && d.tools.find((t) => t.name === 'create_shopping_list').allowedForMe === false);
+  expect('Danh sách công cụ AI', await call('GET', '/ai/tools', { token: B.token }), '00427', (d) => d.tools.every((t) => ['read', 'write'].includes(t.riskLevel) && !/^(update|delete|remove)_/.test(t.name)) && d.tools.find((t) => t.name === 'create_shopping_session').allowedForMe === false);
   const sg = expect('Chạy Suggestion Worker', await call('POST', '/ai/suggestion/refresh', { token: A.token }), '00431', (d) => d.suggestions.length >= 2);
   expect('B (thành viên) không thấy gợi ý cần quyền trưởng nhóm', await call('GET', '/ai/suggestion', { token: B.token }), '00431', (d) => d.suggestions.length === 0);
   const shopSug = sg.data.suggestions.find((s) => s.type === 'shopping_from_plan');
@@ -267,7 +267,7 @@ async function main() {
 
   section('Rời nhóm / xóa tài khoản');
   expect('B rời nhóm (danh sách được giao tự bỏ giao)', await call('POST', '/user/group/leave', { token: B.token }), '00500');
-  expect('Danh sách không còn người được giao', await call('GET', `/shopping/${listId}`, { token: A.token }), '00570', (d) => d.list.assignedTo === null);
+  expect('Danh sách không còn người được giao', await call('GET', `/shopping/${sessionId}`, { token: A.token }), '00570', (d) => d.session.assignedTo === null);
   expect('B không còn thấy dữ liệu nhóm', await call('GET', '/fridge', { token: B.token }), '00096');
   const C2 = await call('POST', '/user/login', { body: { email: C.email, password: 'secret123' } });
   expect('C xóa tài khoản (nhóm của C bị giải tán)', await call('DELETE', '/user', { token: C2.data.accessToken }), '00092');

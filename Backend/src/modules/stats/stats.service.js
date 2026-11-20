@@ -82,11 +82,11 @@ export async function summary(ctx, q = {}) {
 
   const shopping = (
     await query(
-      `SELECT count(DISTINCT sl.id)::int AS lists,
+      `SELECT count(DISTINCT sl.id)::int AS sessions,
               count(t.id)::int AS items,
               count(t.id) FILTER (WHERE t.status IN ('bought', 'in_fridge'))::int AS purchased_items
-         FROM shopping_lists sl LEFT JOIN shopping_items t ON t.list_id = sl.id
-        WHERE sl.group_id = $1 AND sl.created_at::date BETWEEN $2::date AND $3::date`,
+         FROM shopping_sessions ss LEFT JOIN shopping_items t ON t.session_id = ss.id
+        WHERE ss.group_id = $1 AND ss.created_at::date BETWEEN $2::date AND $3::date`,
       [groupId, from, to],
     )
   ).rows[0];
@@ -97,7 +97,7 @@ export async function summary(ctx, q = {}) {
     to,
     totals,
     wasteRate: usedEvents ? Math.round((totals.discard / usedEvents) * 1000) / 1000 : 0,
-    shopping: { lists: shopping.lists, items: shopping.items, purchasedItems: shopping.purchased_items },
+    shopping: { sessions: shopping.sessions, items: shopping.items, purchasedItems: shopping.purchased_items },
     byFood,
     byCategory,
     daily,

@@ -8,7 +8,7 @@ import { requireLeader, requireMember } from '../../common/permissions.js';
 import { audit } from '../../common/audit.js';
 import { findFoodByName } from '../food/food.repo.js';
 import { compareWithStock, loadFridgeStock, loadRecipeRequirements, mergeRequirements } from '../recipe/ingredients.js';
-import { loadList } from '../shopping/shopping.service.js';
+import { getShoppingSessionById } from '../shopping/shopping.service.js';
 
 const DEFAULT_TIME = { 'sáng': [7, 0], 'trưa': [11, 30], 'tối': [18, 30] };
 
@@ -223,7 +223,7 @@ export async function checkIngredients(ctx, q = {}) {
 
 /**
  * POST meal/missing-to-shopping/ - Thao tác tùy chọn riêng (extend), không tự chạy khi lưu kế hoạch.
- * body: {planIds? | planId? | date? | from&to?, listId? | newListName?, assignToUsername?}
+ * body: {planIds? | planId? | date? | from&to?, sessionId? | newListName?, assignToUsername?}
  */
 export async function addMissingToShopping(ctx, body = {}) {
   const groupId = requireLeader(ctx, '00096', '00104');
@@ -231,12 +231,12 @@ export async function addMissingToShopping(ctx, body = {}) {
   const { missing } = await analyse(groupId, plans);
   if (!missing.length) return result('00537', { added: [], updated: [] });
 
-  const listId = await withTx(async (db) => {
+  const sessionId = await withTx(async (db) => {
     let id;
-    if (isPresent(body.listId)) {
-      id = toId(body.listId);
+    if (isPresent(body.sessionId)) {
+      id = toId(body.sessionId);
       ensure(id, '00251');
-      const l = await db.query('SELECT id FROM shopping_lists WHERE id = $1 AND group_id = $2 FOR UPDATE', [id, groupId]);
+      const l = await db.query('SELECT id FROM shopping_sessions WHERE id = $1 AND group_id = $2 FOR UPDATE', [id, groupId]);
       ensure(l.rowCount, '00260');
     } else {
       const firstDate = plans.length ? localDate(new Date(plans[0].planned_at), ctx.timezone) : localDate(new Date(), ctx.timezone);
@@ -254,7 +254,7 @@ export async function addMissingToShopping(ctx, body = {}) {
         assignee = u.id;
       }
       const ins = await db.query(
-        `INSERT INTO shopping_lists (group_id, assigned_user_id, name, note, created_by)
+        `INSERT INTO shopping_sessions (group_id, assigned_user_id, name, note, created_by)
          VALUES ($1, $2, $3, $4, $5) RETURNING id`,
         [groupId, assignee, name, 'Tạo từ kế hoạch bữa ăn', ctx.userId],
       );
@@ -263,18 +263,18 @@ export async function addMissingToShopping(ctx, body = {}) {
     for (const m of missing) {
       // Đã có nhiệm vụ chưa mua cho thực phẩm này => cộng thêm phần thiếu
       await db.query(
-        `INSERT INTO shopping_items (list_id, group_id, food_id, quantity) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (list_id, food_id) DO UPDATE SET quantity = shopping_items.quantity + EXCLUDED.quantity
+        `INSERT INTO shopping_items (session_id, group_id, food_id, quantity) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (session_id, food_id) DO UPDATE SET quantity = shopping_items.quantity + EXCLUDED.quantity
          WHERE shopping_items.status = 'pending'`,
         [id, groupId, m.food.id, m.missingQuantity],
       );
     }
     await db.query(
-      'UPDATE shopping_lists SET completed_at = NULL, updated_at = now() WHERE id = $1',
+      'UPDATE shopping_sessions SET completed_at = NULL, updated_at = now() WHERE id = $1',
       [id],
     );
-    await audit(db, ctx, 'meal.missing_to_shopping', 'shopping_list', id, { foods: missing.map((m) => m.food.name) });
+    await audit(db, ctx, 'meal.missing_to_shopping', 'shopping_session', id, { foods: missing.map((m) => m.food.name) });
     return id;
   });
-  return result('00536', { listId, missing, list: await loadList(groupId, listId) });
+  return result('00536', { sessionId, missing, session: await getShoppingSessionById(groupId, sessionId) });
 }

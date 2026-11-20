@@ -41,8 +41,12 @@ function deliver(user, code) {
 
 /** POST user/ - Đăng ký tài khoản (chưa xác minh). */
 export async function register(body = {}) {
-  const { email, password, name, language, timezone, deviceId } = body;
-  ensure(isPresent(email) && isPresent(password) && isPresent(name), '00005');
+  const { username, password, email, name, language, timezone, deviceId } = body;
+  ensure(isPresent(username) && isPresent(password) && isPresent(email) && isPresent(name), '00005');
+  const cleanUsernameRow = String(username).normalize('NFC').trim();
+  ensure(USERNAME_RE.test(cleanUsernameRow), '00029');
+  const cleanUsername = cleanUsernameRow;
+  ensure(cleanUsername, '00029');
   ensure(isEmail(email), '00026');
   ensure(validPassword(password), '00027');
   const cleanName = cleanString(name, { min: 4, max: 29 });
@@ -57,9 +61,9 @@ export async function register(body = {}) {
   try {
     created = await withTx(async (db) => {
       const { rows } = await db.query(
-        `INSERT INTO users (email, password_hash, name, language, timezone, device_id)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-        [normEmail(email), passwordHash, cleanName, lang, tz, isPresent(deviceId) ? String(deviceId) : null],
+        `INSERT INTO users (username, password_hash, name, email, language, timezone, device_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [cleanUsername, passwordHash, cleanName, normEmail(email), lang, tz, isPresent(deviceId) ? String(deviceId) : null],
       );
       const user = rows[0];
       const v = await createVerification(db, user.id, 'email_verification');
@@ -67,7 +71,10 @@ export async function register(body = {}) {
       return { user, ...v };
     });
   } catch (err) {
-    if (err.code === '23505') throw new AppError('00032');
+    if (err.code === '23505') {
+      if (err.detail && err.detail.includes('username')) throw new AppError('00084');
+      if (err.detail && err.detail.includes('email')) throw new AppError('00032');
+    }
     throw err;
   }
   deliver(created.user, created.code);
@@ -206,11 +213,10 @@ export async function resetPassword(body = {}) {
 
 /** POST user/login/ */
 export async function login(body = {}) {
-  const { email, password, deviceId } = body;
-  ensure(isPresent(email) && isPresent(password), '00005');
-  ensure(isEmail(email), '00026');
+  const { username, password, deviceId } = body;
+  ensure(isPresent(username) && isPresent(password), '00005');
   ensure(validPassword(password), '00027');
-  const { rows } = await query('SELECT * FROM users WHERE lower(email) = $1', [normEmail(email)]);
+  const { rows } = await query('SELECT * FROM users WHERE lower(username) = $1', [username.trim().toLowerCase()]);
   const user = rows[0];
   ensure(user, '00036');
   ensure(await bcrypt.compare(password, user.password_hash), '00045');

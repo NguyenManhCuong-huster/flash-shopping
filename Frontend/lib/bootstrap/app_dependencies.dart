@@ -2,24 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:provider/single_child_widget.dart';
 
-import '../application/account_service.dart';
-import '../application/admin_ai_service.dart';
-import '../screens/auth/reset_password_view_model.dart';
-import '../application/insight_service.dart';
-import '../application/meal_service.dart';
-import '../application/media_resolver.dart';
-import '../application/pantry_service.dart';
-import '../application/session_service.dart';
-import '../application/shopping_service.dart';
-import '../data/local/settings_store.dart';
-import '../data/local/token_store.dart';
-import '../data/remote/api_client.dart';
-import '../data/repositories/auth_repository.dart';
-import '../data/repositories/food_repository.dart';
-import '../data/repositories/group_repository.dart';
-import '../data/repositories/meal_recipe_repository.dart';
-import '../data/repositories/misc_repository.dart';
-import '../data/repositories/shopping_repository.dart';
+import '../features/group/account_service.dart';
+import '../features/ai/admin_ai_service.dart';
+import '../features/auth/reset_password_view_model.dart';
+import '../features/stats/insight_service.dart';
+import '../features/meal/meal_service.dart';
+import '../features/notifications/media_resolver.dart';
+import '../features/food/food_service.dart';
+import '../features/auth/session_service.dart';
+import '../features/shopping/shopping_service.dart';
+import '../core/settings_store.dart';
+import '../core/token_store.dart';
+import '../core/api_client.dart';
+import '../features/auth/auth_repository.dart';
+import '../features/food/food_repository.dart';
+import '../features/group/group_repository.dart';
+import '../features/meal/meal_recipe_repository.dart';
+import '../features/notifications/misc_repository.dart';
+import '../features/shopping/shopping_repository.dart';
 
 /// Điểm lắp ráp đối tượng: tạo ApiClient, kho lưu phiên, repository, service rồi cung cấp cho cây widget.
 /// Không chứa quy tắc nghiệp vụ. View/ViewModel chỉ nhận Service (tầng nghiệp vụ), không nhận Repository.
@@ -52,7 +52,7 @@ Future<List<SingleChildWidget>> createDependencies() async {
     ChangeNotifierProvider<ResetPasswordViewModel>.value(
       value: ResetPasswordViewModel(AccountService(authRepo, GroupRepository(api), session)),
     ),
-    Provider<PantryService>.value(value: PantryService(FoodRepository(api))),
+    Provider<FoodService>.value(value: FoodService(FoodRepository(api))),
     Provider<ShoppingService>.value(value: ShoppingService(ShoppingRepository(api))),
     Provider<MealService>.value(value: MealService(MealRecipeRepository(api))),
     Provider<AdminService>.value(value: AdminService(AdminRepository(api))),

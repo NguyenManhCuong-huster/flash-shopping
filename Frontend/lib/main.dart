@@ -3,11 +3,11 @@
 // import 'package:intl/date_symbol_data_local.dart';
 // import 'package:provider/provider.dart';
 
-// import 'application/session_service.dart';
+// import './features/auth/session_service.dart';
 // import 'bootstrap/app_dependencies.dart';
-// import 'screens/auth/login_page.dart';
-// import 'screens/main_layout.dart';
-// import 'utils/theme.dart';
+// import './features/auth/login_page.dart';
+// import './core/main_layout.dart';
+// import './core/theme.dart';
 
 // void main() async {
 //   WidgetsFlutterBinding.ensureInitialized();
@@ -78,26 +78,23 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 import 'package:provider/single_child_widget.dart';
 
-import 'application/session_service.dart';
+import './features/auth/session_service.dart';
 import 'bootstrap/app_dependencies.dart';
-import 'screens/auth/login_page.dart';
-import 'screens/main_layout.dart';
-import 'utils/theme.dart';
+import './features/auth/login_page.dart';
+import './core/main_layout.dart';
+import 'core/utils/app_colors.dart';
+import 'core/utils/theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // 1. Chạy ngay một màn hình chờ đơn giản để tránh tình trạng màn hình đen
   runApp(
     const MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      ),
+      home: AppSplashScreen()
     ),
   );
 
-  // 2. Khởi tạo các dependencies ngầm ở background
   _initApp();
 }
 
@@ -114,6 +111,33 @@ Future<void> _initApp() async {
       child: const PantrioApp(),
     )
   );
+}
+
+class AppSplashScreen extends StatelessWidget {
+  const AppSplashScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColor.emerald500,
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            Image.asset(
+              'assets/images/logo_1.png',
+              height: 120,
+            ),            
+            const SizedBox(
+              width: 48,
+              height: 48,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppColor.white),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class PantrioApp extends StatelessWidget {
@@ -153,7 +177,6 @@ class _RootGateState extends State<RootGate> {
   void _restoreSession() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      // Không cần Future.delayed ở đây nữa, gọi thẳng hàm restore
       context.read<SessionService>().restore();
     });
   }
@@ -162,9 +185,7 @@ class _RootGateState extends State<RootGate> {
   Widget build(BuildContext context) {
     final status = context.watch<SessionService>().status;
     return switch (status) {
-      SessionStatus.unknown => const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      ),
+      SessionStatus.unknown => const AppSplashScreen(),
       SessionStatus.loggedOut => const LoginPage(),
       SessionStatus.loggedIn => const MainScreenLayout(),
     };

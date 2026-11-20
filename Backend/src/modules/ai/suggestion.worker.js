@@ -60,7 +60,7 @@ export async function generateSuggestions({ groupId = null, force = false } = {}
         {
           date: tomorrow,
           actions: [{
-            tool: 'create_shopping_list',
+            tool: 'create_shopping_session',
             arguments: {
               name: `Đi chợ cho ngày ${ddmm(tomorrow)}`,
               date: today,
@@ -84,16 +84,16 @@ export async function generateSuggestions({ groupId = null, force = false } = {}
       const items = low.map((f) => ({ foodName: f.name, quantity: 1 }));
       const next = (
         await query(
-          `SELECT name, to_char(shopping_date, 'YYYY-MM-DD') AS date FROM shopping_lists
+          `SELECT name, to_char(shopping_date, 'YYYY-MM-DD') AS date FROM shopping_sessions
             WHERE group_id = $1 AND shopping_date >= $2::date ORDER BY shopping_date, id LIMIT 1`,
           [g.group_id, today],
         )
       ).rows[0];
       const actions = next
-        ? [{ tool: 'add_shopping_items', arguments: { listId: next.id, items } }]
+        ? [{ tool: 'add_shopping_items', arguments: { sessionId: next.id, items } }]
         : [
-          { tool: 'create_shopping_list', arguments: { name: 'Bổ sung đồ hay dùng' } },
-          { tool: 'add_shopping_items', arguments: { listId: '$ref:0.listId', items } },
+          { tool: 'create_shopping_session', arguments: { name: 'Bổ sung đồ hay dùng' } },
+          { tool: 'add_shopping_items', arguments: { sessionId: '$ref:0.sessionId', items } },
         ];
       created += await insertSuggestion(
         g.group_id, 'low_stock', `${today}:${low.map((f) => f.id).sort((a, b) => a - b).join(',')}`,

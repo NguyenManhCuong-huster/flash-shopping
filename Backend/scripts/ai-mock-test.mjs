@@ -58,7 +58,7 @@ function respond(body, res) {
   }
   if (lastToolName === 'list_fridge_items') {
     return sse(res, [{
-      type: 'tool_use', id: 'toolu_2', name: 'create_shopping_list',
+      type: 'tool_use', id: 'toolu_2', name: 'create_shopping_session',
       input: { name: 'Đi chợ tối nay', date: tomorrow, tasks: [{ foodName: 'Cà chua', quantity: 0.5 }, { foodName: 'Hành lá', quantity: 1 }] },
     }], 'tool_use');
   }
@@ -124,7 +124,7 @@ async function scenario() {
   ok('Câu trả lời cuối', /xác nhận/.test(r1.data.message.content));
   ok('Gửi 3 request tới LLM', requests.length === 3, `(${requests.length})`);
   const toolNames = requests[0].body.tools.map((t) => t.name);
-  ok('Chỉ có công cụ xem/tạo (không sửa/xóa)', !toolNames.some((n) => /^(update|delete|remove|record)_/.test(n)) && toolNames.includes('create_shopping_list'));
+  ok('Chỉ có công cụ xem/tạo (không sửa/xóa)', !toolNames.some((n) => /^(update|delete|remove|record)_/.test(n)) && toolNames.includes('create_shopping_session'));
   // Soát mọi kết quả công cụ (dữ liệu của hệ thống) gửi cho LLM: không được có khóa id / ...Id / version
   const leaked = [];
   const scan = (v, path) => {
@@ -165,9 +165,9 @@ async function scenario() {
   console.log('\n== Xác nhận hành động');
   const conf = await call('POST', '/ai/action/confirm', { token, body: { actionIds: [pList.actionId] } });
   ok('Mã 00423', conf.code === '00423', JSON.stringify(conf).slice(0, 300));
-  const lists = await call('GET', '/shopping/item', { token });
-  const list = lists.data.lists.find((l) => l.name === 'Đi chợ tối nay');
-  ok('Danh sách được tạo với 2 món', list?.tasks.length === 2);
+  const sessions = await call('GET', '/shopping/item', { token });
+  const session = sessions.data.sessions.find((ss) => ss.name === 'Đi chợ tối nay');
+  ok('Danh sách được tạo với 2 món', session?.items.length === 2);
   const logs = await db.query(`SELECT count(*)::int AS n FROM audit_logs WHERE source = 'ai' AND ai_action_id = ANY($1::bigint[])`, [[pList.actionId]]);
   ok('audit_logs ghi source = ai kèm ai_action_id', logs.rows[0].n >= 2);
 

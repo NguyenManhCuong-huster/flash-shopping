@@ -131,7 +131,7 @@ CREATE TABLE meal_plans (
 CREATE INDEX meal_plans_group_time_idx ON meal_plans (group_id, planned_at);
 
 -- ---------- Mua sắm ----------
-CREATE TABLE shopping_lists (
+CREATE TABLE shopping_sessions (
   id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   group_id         BIGINT NOT NULL REFERENCES groups (id) ON DELETE CASCADE,
   assigned_user_id BIGINT,          -- NULL = chưa giao (UC03: "người được giao nếu có")
@@ -141,12 +141,12 @@ CREATE TABLE shopping_lists (
   created_by       BIGINT REFERENCES users (id) ON DELETE SET NULL,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT shopping_lists_group_id_uq UNIQUE (group_id, id),
+  CONSTRAINT shopping_sessions_group_id_uq UNIQUE (group_id, id),
   -- Người được giao phải là thành viên cùng nhóm; rời nhóm => bỏ giao
   FOREIGN KEY (group_id, assigned_user_id) REFERENCES group_members (group_id, user_id)
     ON DELETE SET NULL (assigned_user_id)
 );
-CREATE INDEX shopping_lists_group_date_idx ON shopping_lists (group_id, shopping_date DESC);
+CREATE INDEX shopping_sessions_group_date_idx ON shopping_sessions (group_id, shopping_date DESC);
 
 CREATE TABLE shopping_tasks (
   id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -160,7 +160,7 @@ CREATE TABLE shopping_tasks (
   bought_by       BIGINT REFERENCES users (id) ON DELETE SET NULL,
   bought_at       TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  FOREIGN KEY (group_id, list_id) REFERENCES shopping_lists (group_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (group_id, list_id) REFERENCES shopping_sessions (group_id, id) ON DELETE CASCADE,
   FOREIGN KEY (group_id, food_id) REFERENCES foods (group_id, id) ON DELETE CASCADE,
   CONSTRAINT shopping_tasks_list_food_uq UNIQUE (list_id, food_id)
 );

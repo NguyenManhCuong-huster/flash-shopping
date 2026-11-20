@@ -37,7 +37,7 @@ export function StatsPage() {
               <div className="card stat"><b style={{ color: 'var(--info)' }}>{r.totals.consume ?? 0}</b>Lần sử dụng</div>
               <div className="card stat"><b style={{ color: 'var(--bad)' }}>{r.totals.discard ?? 0}</b>Lần bỏ đi · lãng phí {(r.wasteRate * 100).toFixed(1)}%</div>
             </div>
-            <p className="muted">Đi chợ: {r.shopping.lists} danh sách, đã mua {r.shopping.boughtTasks}/{r.shopping.tasks} món trong kỳ.</p>
+            <p className="muted">Đi chợ: {r.shopping.sessions} danh sách, đã mua {r.shopping.boughtTasks}/{r.shopping.tasks} món trong kỳ.</p>
 
             {r.daily.length > 0 && (
               <>

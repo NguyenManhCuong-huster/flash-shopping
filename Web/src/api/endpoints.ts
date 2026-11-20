@@ -1,7 +1,7 @@
 import { http, postStream, request, tokens } from './client';
 import type {
   AiAction, AiConversation, AiMessage, AiSuggestion, AuditLog, Food, FridgeItem, FridgeSummary, Group, IngredientStatus,
-  Location, MealName, MealPlan, Named, Notification, Paged, Recipe, RecipeSuggestion, ShoppingList, StatsReport, StockEvent, User,
+  Location, MealName, MealPlan, Named, Notification, Paged, Recipe, RecipeSuggestion, ShoppingSession as ShoppingSession, StatsReport, StockEvent, User,
 } from './types';
 
 /** Một hàm cho mỗi API của backend, nhóm theo nghiệp vụ. */
@@ -75,19 +75,19 @@ export const fridgeApi = {
 };
 
 export const shoppingApi = {
-  lists: (p: { status?: 'open' | 'done'; assignedToMe?: boolean; page?: number }) =>
-    http.get<{ lists: ShoppingList[] } & Paged>('/shopping/task', { status: p.status, assignedToMe: p.assignedToMe ? 'true' : undefined, page: p.page }),
-  get: (id: number) => http.get<{ list: ShoppingList }>(`/shopping/${id}`).then((d) => d.list),
-  create: (b: { name: string; date: string; assignToUsername?: string; note?: string }) => http.post<{ listId: number }>('/shopping', b),
+  sessions: (p: { status?: 'open' | 'done'; assignedToMe?: boolean; page?: number }) =>
+    http.get<{ sessions: ShoppingSession[] } & Paged>('/shopping/task', { status: p.status, assignedToMe: p.assignedToMe ? 'true' : undefined, page: p.page }),
+  get: (id: number) => http.get<{ session: ShoppingSession }>(`/shopping/${id}`).then((d) => d.session),
+  create: (b: { name: string; date: string; assignToUsername?: string; note?: string }) => http.post<{ sessionId: number }>('/shopping', b),
   update: (b: Record<string, unknown>) => http.put('/shopping', b),
-  remove: (listId: number) => http.del('/shopping', { listId }),
-  addTasks: (listId: number, tasks: { foodName: string; quantity: number }[]) =>
-    http.post<{ created: unknown[]; failed: { foodName: string; message: string }[] }>('/shopping/task', { listId, tasks }),
+  remove: (sessionId: number) => http.del('/shopping', { sessionId }),
+  addTasks: (sessionId: number, tasks: { foodName: string; quantity: number }[]) =>
+    http.post<{ created: unknown[]; failed: { foodName: string; message: string }[] }>('/shopping/task', { sessionId, tasks }),
   updateTask: (b: { taskId: number; newFoodName?: string; newQuantity?: number }) => http.put('/shopping/task', b),
   removeTask: (taskId: number) => http.del('/shopping/task', { taskId }),
   /** Gửi lại cùng idempotencyKey khi thử lại => backend không cộng tồn kho lần 2. */
-  purchase: (listId: number, items: unknown[], idempotencyKey: string) =>
-    http.post<{ replayed: boolean }>('/shopping/purchase', { listId, items }, { 'Idempotency-Key': idempotencyKey }),
+  purchase: (sessionId: number, items: unknown[], idempotencyKey: string) =>
+    http.post<{ replayed: boolean }>('/shopping/purchase', { sessionId, items }, { 'Idempotency-Key': idempotencyKey }),
 };
 
 export const mealApi = {
@@ -95,7 +95,7 @@ export const mealApi = {
   create: (b: { foodName?: string; recipeId?: number; timestamp: string; name: MealName }) => http.post('/meal', b),
   remove: (planId: number) => http.del('/meal', { planId }),
   ingredients: (q: { planId?: number; date?: string }) => http.get<{ ingredients: IngredientStatus[]; missing: IngredientStatus[] }>('/meal/ingredients', q),
-  missingToShopping: (b: { planId?: number; date?: string; listId?: number }) => http.post<{ listId?: number }>('/meal/missing-to-shopping', b),
+  missingToShopping: (b: { planId?: number; date?: string; sessionId?: number }) => http.post<{ sessionId?: number }>('/meal/missing-to-shopping', b),
 };
 
 export const recipeApi = {

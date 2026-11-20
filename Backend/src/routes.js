@@ -73,7 +73,7 @@ r.delete('/food', auth, h((req) => Food.deleteFood(req.ctx, req.body)));
 // ===== UC05 Tủ lạnh =====
 r.get('/fridge', auth, h((req) => Fridge.listItems(req.ctx, req.query)));
 r.post('/fridge', auth, h((req) => Fridge.createItem(req.ctx, req.body)));
-r.post('/fridge/from-purchase', auth, h((req) => Shopping.addPurchasedItems(req.ctx, req.body, req.get('Idempotency-Key'))));
+r.post('/fridge/items/from-purchase', auth, h((req) => Shopping.addPurchasedItemsToFridge(req.ctx, req.body, req.get('Idempotency-Key'))));
 r.put('/fridge', auth, h((req) => Fridge.updateItem(req.ctx, req.body)));
 r.delete('/fridge', auth, h((req) => Fridge.deleteItem(req.ctx, req.body)));
 r.post('/fridge/consume', auth, h((req) => Fridge.consumeItem(req.ctx, req.body)));
@@ -82,16 +82,15 @@ r.get('/fridge/item/:itemId', auth, h((req) => Fridge.getById(req.ctx, req.param
 r.get('/fridge/:foodName', auth, h((req) => Fridge.getByFoodName(req.ctx, req.params.foodName)));
 
 // ===== UC03, UC04 Mua sắm =====
-r.post('/shopping', auth, h((req) => Shopping.createList(req.ctx, req.body)));
-r.put('/shopping', auth, h((req) => Shopping.updateList(req.ctx, req.body)));
-r.delete('/shopping', auth, h((req) => Shopping.deleteList(req.ctx, req.body)));
-r.get('/shopping/item', auth, h((req) => Shopping.listLists(req.ctx, req.query)));
-r.post('/shopping/item', auth, h((req) => Shopping.createItems(req.ctx, req.body)));
-r.put('/shopping/item', auth, h((req) => Shopping.updateItem(req.ctx, req.body)));
-r.delete('/shopping/item', auth, h((req) => Shopping.deleteItem(req.ctx, req.body)));
-r.post('/shopping/purchase', auth, h((req) => Shopping.confirmPurchase(req.ctx, req.body, req.get('Idempotency-Key'))));
-r.post('/shopping/purchase/to-fridge', auth, h((req) => Shopping.addPurchasedItems(req.ctx, req.body, req.get('Idempotency-Key'))));
-r.get('/shopping/:listId', auth, h((req) => Shopping.getList(req.ctx, req.params.listId)));
+r.post('/shopping/sessions', auth, h((req) => Shopping.createShoppingSession(req.ctx, req.body)));
+r.patch('/shopping/sessions/:sessionId', auth, h((req) => Shopping.updateShoppingSession(req.ctx, req.body)));
+r.delete('/shopping/sessions/:sessionId', auth, h((req) => Shopping.deleteShoppingSession(req.ctx, req.body)));
+r.get('/shopping/sessions', auth, h((req) => Shopping.listShoppingSessions(req.ctx, req.query)));
+r.get('/shopping/sessions/:sessionId', auth, h((req) => Shopping.getShoppingSessionById(req.ctx, req.params.sessionId)));
+r.post('/shopping/sessions/:sessionId/items', auth, h((req) => Shopping.createShoppingItem(req.ctx, req.body)));
+r.patch('/shopping/sessions/:sessionId/items/:itemId', auth, h((req) => Shopping.updateShoppingItem(req.ctx, req.body)));
+r.delete('/shopping/sessions/:sessionId/items/:itemId', auth, h((req) => Shopping.deleteShoppingItem(req.ctx, req.body)));
+r.post('/shopping/sessions/:sessionId/purchases', auth, h((req) => Shopping.confirmShoppingPurchase(req.ctx, req.body, req.get('Idempotency-Key'))));
 
 // ===== UC08 Kế hoạch bữa ăn =====
 r.get('/meal', auth, h((req) => Meal.listPlans(req.ctx, req.query)));
